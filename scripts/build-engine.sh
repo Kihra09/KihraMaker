@@ -109,6 +109,12 @@ if [ ! -f "$JNI/.fetched" ]; then
   # Ruby's "make" also builds hundreds of C-API test extensions (spec/ruby/optional/capi/ext/*.c)
   # when Ruby is shared. We don't need them and one fails when cross-compiling: remove the sources.
   rm -f ruby/spec/ruby/optional/capi/ext/*.c
+
+  # "make install" would also install Ruby's default gems into the BUILD machine's own gem folder
+  # (/var/lib/gems on the CI runner: permission denied). They are not used here (rubygems is
+  # disabled), so skip them.
+  sed -i 's|--install=all --exclude=doc$|--install=all --exclude=doc --exclude=default-gems --exclude=bundled-gems|' ruby/common.mk
+  grep -q -- '--exclude=default-gems' ruby/common.mk || fail "Ruby common.mk install patch did not apply."
   touch .fetched
 fi
 

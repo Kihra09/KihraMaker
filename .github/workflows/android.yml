@@ -63,7 +63,10 @@ jobs:
           gradle-version: 8.7
 
       - name: Build APK
-        run: gradle assembleRelease --no-daemon --stacktrace --console=plain
+        run: |
+          set -o pipefail
+          mkdir -p build-logs
+          gradle assembleRelease --no-daemon --stacktrace --console=plain 2>&1 | tee build-logs/gradle.log
 
       - name: Check the APK contains the engine
         run: |
