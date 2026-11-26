@@ -1,0 +1,50 @@
+package com.kihra.maker.data
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.File
+import java.util.zip.ZipFile
+
+/**
+ * Game icon: the game's title-screen picture (Graphics/Titles1 or Graphics/Titles), scaled down and
+ * cached in files/icons. Returns null when there is none (encrypted archives, odd layouts); the UI
+ * then shows a coloured letter instead.
+ */
+object GameArt {
+    private val exts = setOf("png", "jpg", "jpeg")
+
+    fun iconFile(context: Context, game: Game): File? {
+        val out = File(File(AppPaths.base(context), "icons").apply { mkdirs() }, Shots.key(game.id) + ".png")
+        if (out.isFile && out.length() > 0) return out
+        val bmp = runCatching { extract(game) }.getOrNull() ?: return null
+        return runCatching {
+            val side = 256
+            val ratio = minOf(side.toFloat() / bmp.width, side.toFloat() / bmp.height, 1f)
+            val scaled = if (ratio < 1f) {
+                Bitmap.createScaledBitmap(bmp, (bmp.width * ratio).toInt().coerceAtLeast(1), (bmp.height * ratio).toInt().coerceAtLeast(1), true)
+            } else bmp
+            out.outputStream().use { scaled.compress(Bitmap.CompressFormat.PNG, 90, it) }
+            out
+        }.getOrNull()
+    }
+
+    private fun extract(game: Game): Bitmap? {
+        val dirs = listOf("Graphics/Titles1", "Graphics/Titles")
+        if (game.fromZip) {
+            ZipFile(File(game.zipPath)).use { zip ->
+                val entry = zip.entries().asSequence().filter { !it.isDirectory }.filter { e ->
+                    val n = e.name.replace('\\', '/')
+                    dirs.any { n.startsWith("$it/", ignoreCase = true) } && n.substringAfterLast('.', "").lowercase() in exts
+                }.sortedBy { it.name }.firstOrNull() ?: return null
+                return zip.getInputStream(entry).use { BitmapFactory.decodeStream(it) }
+            }
+        }
+        for (d in dirs) {
+            val folder = File(game.path, d)
+            val img = folder.listFiles { f -> f.isFile && f.extension.lowercase() in exts }?.minByOrNull { it.name }
+            if (img != null) return BitmapFactory.decodeFile(img.absolutePath)
+        }
+        return null
+    }
+}

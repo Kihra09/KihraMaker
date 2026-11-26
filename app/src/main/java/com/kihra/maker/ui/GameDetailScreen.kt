@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kihra.maker.data.Game
 import com.kihra.maker.data.GameSettings
+import com.kihra.maker.data.PlayLog
 import com.kihra.maker.data.ScaleMode
 import kotlin.math.roundToInt
 
@@ -56,6 +57,7 @@ fun GameDetailScreen(
     onPlay: () -> Unit,
     onUnpack: () -> Unit,
     onRemove: () -> Unit,
+    playedMs: Long,
 ) {
     BackHandler(onBack = onBack)
     var confirmRemove by remember { mutableStateOf(false) }
@@ -110,6 +112,14 @@ fun GameDetailScreen(
                             "unpacked copy.",
                         isError = false,
                     )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                GameIcon(game, 56.dp)
+                Column {
+                    Text("Total play time", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Text(PlayLog.format(playedMs), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                 }
             }
 
@@ -171,6 +181,19 @@ fun GameDetailScreen(
                 onValueChange = { onSettingsChange(s.copy(controlsOpacity = it)) },
                 valueRange = 0.1f..1f,
             )
+
+            Text(
+                "On-screen button size: ${s.controlsScale}%",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = s.controlsScale.toFloat(),
+                onValueChange = { onSettingsChange(s.copy(controlsScale = (it / 5).roundToInt() * 5)) },
+                valueRange = 50f..150f,
+            )
+            SwitchRow("8-way D-pad (diagonal movement)", s.diagonalPad) { onSettingsChange(s.copy(diagonalPad = it)) }
+            SwitchRow("Vibrate when pressing buttons", s.haptics) { onSettingsChange(s.copy(haptics = it)) }
+            SwitchRow("Screenshot button in game", s.screenshotButton) { onSettingsChange(s.copy(screenshotButton = it)) }
 
             if (game.fromZip) {
                 OutlinedButton(onClick = onUnpack, modifier = Modifier.fillMaxWidth()) {

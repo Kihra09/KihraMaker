@@ -3,7 +3,20 @@ package com.kihra.maker.engine;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.os.HandlerThread;
+import android.view.PixelCopy;
+import android.view.SurfaceView;
+import android.widget.ImageButton;
+import android.widget.RelativeLayout;
+import android.widget.Toast;
+import android.content.res.ColorStateList;
+import com.kihra.maker.R;
+import com.kihra.maker.data.PlayLog;
+import com.kihra.maker.data.Shots;
+import java.io.File;
+import java.io.FileOutputStream;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -45,6 +58,9 @@ public class GameActivity extends SDLActivity {
     private final Gamepad mGamepad = new Gamepad();
     private boolean mGamepadInvisible = false;
     private boolean mStarted = false;
+    private String mGameId = "";
+    private boolean mHaptics = true;
+    private long mSegmentStart = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,13 +74,22 @@ public class GameActivity extends SDLActivity {
         mMainHandler = new Handler(getMainLooper());
         mVibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
 
+        mGameId = getIntent().getStringExtra(EngineLauncher.EXTRA_GAME_ID);
+        if (mGameId == null) mGameId = "";
+        mHaptics = getIntent().getBooleanExtra(EngineLauncher.EXTRA_HAPTICS, true);
+
         int opacity = Math.round(getIntent().getFloatExtra(EngineLauncher.EXTRA_CONTROLS_OPACITY, 0.6f) * 100f);
         GamepadConfig cfg = new GamepadConfig();
         cfg.opacity = Math.max(10, Math.min(100, opacity));
+        cfg.scale = Math.max(50, Math.min(150, getIntent().getIntExtra(EngineLauncher.EXTRA_CONTROLS_SCALE, 100)));
+        cfg.diagonalMovement = getIntent().getBooleanExtra(EngineLauncher.EXTRA_DIAGONAL, false);
 
         mGamepadInvisible = isAndroidTV() || isChromebook();
         mGamepad.init(cfg, mGamepadInvisible);
-        mGamepad.setOnKeyDownListener(SDLActivity::onNativeKeyDown);
+        mGamepad.setOnKeyDownListener(key -> {
+            if (mHaptics) tick();
+            SDLActivity.onNativeKeyDown(key);
+        });
         mGamepad.setOnKeyUpListener(SDLActivity::onNativeKeyUp);
         if (mLayout != null) {
             mGamepad.attachTo(this, mLayout);
@@ -80,6 +105,92 @@ public class GameActivity extends SDLActivity {
         tvFps.setLayoutParams(params);
         if (mLayout != null) {
             mLayout.addView(tvFps);
+            if (getIntent().getBooleanExtra(EngineLauncher.EXTRA_SHOT_BUTTON, true)) {
+                addScreenshotButton();
+            }
+        }
+    }
+
+    /** Short tap feedback for the on-screen buttons. */
+    private void tick() {
+        try {
+            if (mVibrator == null || !mVibrator.hasVibrator()) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                mVibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK));
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                mVibrator.vibrate(VibrationEffect.createOneShot(12, 80));
+            } else {
+                mVibrator.vibrate(12);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void addScreenshotButton() {
+        ImageButton b = new ImageButton(this);
+        b.setImageResource(R.drawable.ic_camera);
+        b.setBackgroundColor(Color.TRANSPARENT);
+        b.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        b.setAlpha(0.35f);
+        b.setContentDescription("Screenshot");
+        int size = Math.round(44 * getResources().getDisplayMetrics().density);
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(size, size);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        lp.topMargin = Math.round(8 * getResources().getDisplayMetrics().density);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v -> takeScreenshot());
+        mLayout.addView(b);
+    }
+
+    /** Copies what the game is drawing (without the touch buttons) and saves it as a PNG. */
+    private void takeScreenshot() {
+        final SurfaceView sv = mSurface;
+        if (sv == null || sv.getWidth() <= 0 || sv.getHeight() <= 0) return;
+        final Bitmap bmp = Bitmap.createBitmap(sv.getWidth(), sv.getHeight(), Bitmap.Config.ARGB_8888);
+        final HandlerThread ht = new HandlerThread("kihra-shot");
+        ht.start();
+        try {
+            PixelCopy.request(sv, bmp, result -> {
+                if (result == PixelCopy.SUCCESS) {
+                    try {
+                        File out = Shots.newFile(getApplicationContext(), mGameId);
+                        try (FileOutputStream fos = new FileOutputStream(out)) {
+                            bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                        }
+                        runOnUiThread(() -> Toast.makeText(this, "Screenshot saved to the gallery", Toast.LENGTH_SHORT).show());
+                    } catch (Exception e) {
+                        Log.w(TAG, "Screenshot failed", e);
+                    }
+                } else {
+                    Log.w(TAG, "PixelCopy failed: " + result);
+                }
+                ht.quitSafely();
+            }, new Handler(ht.getLooper()));
+        } catch (Exception e) {
+            Log.w(TAG, "Screenshot failed", e);
+            ht.quitSafely();
+        }
+    }
+
+    // ---- Play time: one log line every time the game leaves the foreground ----
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        mSegmentStart = System.currentTimeMillis();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        flushPlayTime();
+    }
+
+    private void flushPlayTime() {
+        if (mSegmentStart > 0) {
+            PlayLog.append(getApplicationContext(), mGameId, mSegmentStart, System.currentTimeMillis());
+            mSegmentStart = 0L;
         }
     }
 
@@ -95,6 +206,7 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        flushPlayTime();
         super.onDestroy();
         // Ruby cannot be re-initialised inside a living process. The game runs in its own
         // process (see AndroidManifest), so this only ends the game, not the launcher.

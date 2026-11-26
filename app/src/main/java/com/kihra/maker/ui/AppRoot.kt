@@ -5,8 +5,18 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.kihra.maker.data.PlayLog
+import com.kihra.maker.data.Shots
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -38,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppRoot(store: GameStore) {
     val context = LocalContext.current
@@ -52,6 +63,27 @@ fun AppRoot(store: GameStore) {
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingDenied by remember { mutableStateOf<(() -> Unit)?>(null) }
     val snackbar = remember { SnackbarHostState() }
+
+    // Play time and screenshots are written by the game process: reload them when we come back.
+    var segments by remember { mutableStateOf(emptyList<PlayLog.Segment>()) }
+    var shots by remember { mutableStateOf(emptyList<Shots.Shot>()) }
+    var reload by remember { mutableStateOf(0) }
+    var showGallery by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) reload++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(reload) {
+        val (seg, sh) = withContext(Dispatchers.IO) { PlayLog.read(context) to Shots.list(context) }
+        segments = seg
+        shots = sh
+    }
+    val playtime = remember(segments) { PlayLog.totals(segments) }
+    val pagerState = rememberPagerState(initialPage = 1) { 2 }
 
     fun update(new: List<Game>) {
         games = new
@@ -214,15 +246,36 @@ fun AppRoot(store: GameStore) {
     val open = games.firstOrNull { it.id == openId }
 
     Box {
-        if (open == null) {
-            LibraryScreen(
+        if (showGallery) {
+            GalleryScreen(
+                shots = shots,
                 games = games,
-                rtpPath = rtpPath,
-                onAddFolder = { withStorage { folderPicker.launch(null) } },
-                onAddZip = { zipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
-                onSetRtp = { withStorage { rtpPicker.launch(null) } },
-                onOpen = { openId = it.id },
+                onBack = { showGallery = false },
+                onDelete = { shot ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { shot.file.delete() }
+                        reload++
+                    }
+                },
             )
+        } else if (open == null) {
+            // Swipe right on the library to reach the Game assistant (page 0).
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                if (page == 0) {
+                    AssistantScreen(games = games, segments = segments, shotCount = shots.size)
+                } else {
+                    LibraryScreen(
+                        games = games,
+                        rtpPath = rtpPath,
+                        onAddFolder = { withStorage { folderPicker.launch(null) } },
+                        onAddZip = { zipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                        onSetRtp = { withStorage { rtpPicker.launch(null) } },
+                        onOpen = { openId = it.id },
+                        playtime = playtime,
+                        onOpenGallery = { showGallery = true },
+                    )
+                }
+            }
         } else {
             GameDetailScreen(
                 game = open,
@@ -240,6 +293,7 @@ fun AppRoot(store: GameStore) {
                     if (open.extracted && rtpPath.isBlank()) start() else withStorage(action = start)
                 },
                 onUnpack = { unpackGame(open) },
+                playedMs = playtime[open.id] ?: 0L,
                 onRemove = {
                     val removed = open
                     update(games.filter { it.id != removed.id })

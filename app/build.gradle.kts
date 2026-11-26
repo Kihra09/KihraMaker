@@ -12,19 +12,31 @@ android {
         applicationId = "kihra.kihramaker.app"
         minSdk = 26
         targetSdk = 33
-        versionCode = 2
-        versionName = "0.2.0"
+        // Every GitHub build gets a higher versionCode, so a new APK installs over the old one.
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = 100 + run
+        versionName = "0.3.$run"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
     }
 
+    // One fixed key for every build (kihramaker.jks in this folder). Android only installs an update
+    // over an existing app when both APKs are signed with the same key.
+    signingConfigs {
+        create("kihra") {
+            storeFile = file("kihramaker.jks")
+            storePassword = "kihramaker"
+            keyAlias = "kihramaker"
+            keyPassword = "kihramaker"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Debug key: installable straight away. Swap for your own key to publish.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("kihra")
         }
     }
 

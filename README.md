@@ -12,7 +12,11 @@ GPL v2+ (see COPYING).
   later from its page (faster loading for compressed zips); its saves are carried over.
 - Library with search, per-game settings (scaling, FPS, frame skip, smoothing, control opacity)
 - RTP folder setting for games that need the RPG Maker runtime package
-- On-screen gamepad, physical controller support
+- Library as a list with game icon, title and total play time; swipe right for the **Game assistant**
+  (daily play-time chart per game, top games, achievements)
+- Gallery (top-left icon) with every in-game screenshot (camera button over the game); export to Pictures
+- Controls: button size and opacity, 8-way D-pad, vibration feedback, physical controller support
+- Windows-only DLL calls (steam_api...) are skipped so games keep running; achievement-like calls are logged
 
 ## Where data lives
 
@@ -21,6 +25,7 @@ Everything the app saves is in `Android/data/kihra.kihramaker.app/files/`:
 - `library.json` game list, per-game settings, RTP folder
 - `saves/<game>/` saves, `Game.ini` copy and generated `mkxp.json` of games played from a zip
 - `games/<game>/` games unpacked from a zip (their saves are inside)
+- `playtime.log`, `screenshots/`, `icons/` play time, gallery pictures, cached game icons
 
 Games added as a plain **folder** keep their saves in that folder (that is where the game expects them).
 
@@ -29,6 +34,12 @@ Games added as a plain **folder** keep their saves in that folder (that is where
 Push to GitHub, open Actions > Build APK, download the `KihraMaker-apk` artifact.
 The first build takes 20-40 minutes (it compiles Ruby, OpenAL, OpenSSL for arm64);
 later builds reuse a cache and are much faster.
+
+## Updating the app
+
+Every build is signed with the same key (app/kihramaker.jks) and gets a higher version number, so a new APK
+installs over the old one and keeps your library, saves and settings. (APKs from before this key was added
+need one uninstall first.)
 
 ## Layout
 

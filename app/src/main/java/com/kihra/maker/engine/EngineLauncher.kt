@@ -13,6 +13,11 @@ object EngineLauncher {
     const val EXTRA_PATH = "path"
     const val EXTRA_TITLE = "title"
     const val EXTRA_CONTROLS_OPACITY = "controlsOpacity"
+    const val EXTRA_GAME_ID = "gameId"
+    const val EXTRA_CONTROLS_SCALE = "controlsScale"
+    const val EXTRA_DIAGONAL = "diagonalPad"
+    const val EXTRA_HAPTICS = "haptics"
+    const val EXTRA_SHOT_BUTTON = "screenshotButton"
 
     private const val MARKER = "_generatedBy"
     private const val MARKER_VALUE = "KihraMaker"
@@ -44,6 +49,11 @@ object EngineLauncher {
                 .putExtra(EXTRA_PATH, game.path)
                 .putExtra(EXTRA_TITLE, game.title)
                 .putExtra(EXTRA_CONTROLS_OPACITY, game.settings.controlsOpacity)
+                .putExtra(EXTRA_GAME_ID, game.id)
+                .putExtra(EXTRA_CONTROLS_SCALE, game.settings.controlsScale)
+                .putExtra(EXTRA_DIAGONAL, game.settings.diagonalPad)
+                .putExtra(EXTRA_HAPTICS, game.settings.haptics)
+                .putExtra(EXTRA_SHOT_BUTTON, game.settings.screenshotButton)
         )
         return null
     }
@@ -90,17 +100,31 @@ object EngineLauncher {
      */
     private val SHIM = """
         module KihraSafeFFI
-          def initialize(*args, &blk)
+          SEEN = {}
+          def self.log(lib, func, args)
+            text = args.map { |a| a.is_a?(String) ? a.inspect : a.to_s }.join(", ")
+            return unless func =~ /achiev|unlock|trophy/i || text =~ /achiev|unlock|trophy/i
+            line = lib + "\t" + func + "\t" + text
+            return if SEEN[line]
+            SEEN[line] = true
+            begin
+              File.open("kihra_ach.log", "a") { |f| f.puts line }
+            rescue StandardError
+            end
+          end
+          def initialize(lib, func, *rest, &blk)
             super
           rescue RuntimeError, LoadError, NameError
             @kihra_missing = true
+            @kihra_lib = lib.to_s
+            @kihra_func = func.to_s
           end
           def call(*args)
-            return 0 if @kihra_missing
+            if @kihra_missing
+              KihraSafeFFI.log(@kihra_lib, @kihra_func, args)
+              return 0
+            end
             super
-          rescue RuntimeError, TypeError, ArgumentError
-            raise unless @kihra_missing
-            0
           end
           def Call(*args)
             call(*args)

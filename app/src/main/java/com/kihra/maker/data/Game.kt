@@ -27,6 +27,14 @@ data class GameSettings(
     val smoothScaling: Boolean = false,
     val showFps: Boolean = false,
     val controlsOpacity: Float = 0.6f,
+    /** On-screen controls size in percent (50..150). */
+    val controlsScale: Int = 100,
+    /** 8-way movement on the on-screen D-pad. */
+    val diagonalPad: Boolean = false,
+    /** Short vibration when an on-screen button is pressed. */
+    val haptics: Boolean = true,
+    /** Camera button over the game for taking screenshots. */
+    val screenshotButton: Boolean = true,
 )
 
 data class Game(
@@ -71,6 +79,10 @@ data class Game(
         put("smoothScaling", settings.smoothScaling)
         put("showFps", settings.showFps)
         put("controlsOpacity", settings.controlsOpacity.toDouble())
+        put("controlsScale", settings.controlsScale)
+        put("diagonalPad", settings.diagonalPad)
+        put("haptics", settings.haptics)
+        put("screenshotButton", settings.screenshotButton)
     }
 
     companion object {
@@ -101,6 +113,10 @@ data class Game(
                     smoothScaling = o.optBoolean("smoothScaling", false),
                     showFps = o.optBoolean("showFps", false),
                     controlsOpacity = o.optDouble("controlsOpacity", 0.6).toFloat(),
+                    controlsScale = o.optInt("controlsScale", 100).coerceIn(50, 150),
+                    diagonalPad = o.optBoolean("diagonalPad", false),
+                    haptics = o.optBoolean("haptics", true),
+                    screenshotButton = o.optBoolean("screenshotButton", true),
                 ),
             )
         }
