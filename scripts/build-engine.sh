@@ -98,6 +98,43 @@ if [ ! -f "$JNI/.fetched" ]; then
   chmod +x get_deps.sh
   # get_deps.sh skips folders that already exist, so a retry only fetches what is missing.
   run_step fetch-deps retry 3 ./get_deps.sh
+  # Two upstream sources moved away from GitHub (freedesktop.org projects), so get_deps.sh cannot
+  # fetch them any more and does not stop on failure. Download release tarballs instead, trying
+  # several mirrors, and verify every dependency is really there.
+  fetch_tarball() { # fetch_tarball <dir> <check file> <url>...
+    local dir="$1" check="$2"; shift 2
+    [ -f "$dir/$check" ] && return 0
+    rm -rf "$dir"
+    local url tmp
+    for url in "$@"; do
+      echo "Downloading $dir from $url"
+      tmp="$(mktemp -d)"
+      if wget -q -t 3 -O "$tmp/src.tar" "$url" && tar -xf "$tmp/src.tar" -C "$tmp" \
+         && [ -d "$(ls -d "$tmp"/*/ | head -n 1)" ]; then
+        mv "$(ls -d "$tmp"/*/ | head -n 1)" "$dir"
+        rm -rf "$tmp"
+        [ -f "$dir/$check" ] && return 0
+      fi
+      rm -rf "$tmp" "$dir"
+    done
+    return 1
+  }
+  run_step fetch-extra bash -c "
+    set -e
+    $(declare -f fetch_tarball)
+    fetch_tarball pixman pixman/pixman.c \
+      https://www.cairographics.org/releases/pixman-0.42.2.tar.gz \
+      https://gitlab.freedesktop.org/pixman/pixman/-/archive/pixman-0.42.2/pixman-pixman-0.42.2.tar.gz \
+      https://deb.debian.org/debian/pool/main/p/pixman/pixman_0.42.2.orig.tar.gz
+    fetch_tarball uchardet src/CharDistribution.cpp \
+      https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz \
+      https://gitlab.freedesktop.org/uchardet/uchardet/-/archive/v0.0.8/uchardet-v0.0.8.tar.gz \
+      https://deb.debian.org/debian/pool/main/u/uchardet/uchardet_0.0.8.orig.tar.bz2
+  "
+  for need in libogg/include libvorbis/include libtheora libiconv pixman/pixman/pixman.c uchardet/src/CharDistribution.cpp \
+              physfs openal SDL2/include SDL2_image SDL2_ttf SDL2_sound openssl/Configure ruby/configure.ac; do
+    [ -e "$need" ] || fail "Dependency source missing after download: $JNI/$need (see build-logs/fetch-deps.log)"
+  done
   run_step make-xxd bash -c "cd mkxp-z && chmod +x make_xxd.sh && ./make_xxd.sh"
 
   # Upstream builds the dependencies with -O0 (debug). Ruby at -O0 is very slow: use -O2.
