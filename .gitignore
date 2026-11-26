@@ -7,3 +7,4 @@ local.properties
 .DS_Store
 # created by scripts/build-engine.sh
 app/jni/
+build-logs/
