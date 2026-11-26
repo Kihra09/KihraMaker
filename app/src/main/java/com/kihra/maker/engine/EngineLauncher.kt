@@ -72,8 +72,40 @@ object EngineLauncher {
             put("vsync", false)
             put("enableSettings", false)
             if (rtps.isNotEmpty()) put("RTP", JSONArray(rtps))
+            put("preloadScript", JSONArray(listOf(SHIM_NAME)))
         }
-        return runCatching { file.writeText(json.toString(2)) }.exceptionOrNull()
+        return runCatching {
+            File(dir, SHIM_NAME).writeText(SHIM)
+            file.writeText(json.toString(2))
+        }.exceptionOrNull()
             ?.let { "Can't write the game's settings file (is the folder read-only?)." }
     }
+
+    private const val SHIM_NAME = "kihra_preload.rb"
+
+    /**
+     * Windows-only libraries (steam_api, custom .dll plugins) can't load on Android and would stop
+     * the game with a RuntimeError. Calls into a missing library are turned into harmless
+     * no-ops that return 0, so the game keeps going.
+     */
+    private val SHIM = """
+        module KihraSafeFFI
+          def initialize(*args, &blk)
+            super
+          rescue RuntimeError, LoadError, NameError
+            @kihra_missing = true
+          end
+          def call(*args)
+            return 0 if @kihra_missing
+            super
+          rescue RuntimeError, TypeError, ArgumentError
+            raise unless @kihra_missing
+            0
+          end
+          def Call(*args)
+            call(*args)
+          end
+        end
+        MiniFFI.send(:prepend, KihraSafeFFI)
+    """.trimIndent() + "\n"
 }
