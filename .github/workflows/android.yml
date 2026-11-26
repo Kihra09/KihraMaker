@@ -6,7 +6,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -15,14 +16,36 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Install build tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential cmake xxd autoconf automake libtool \
+            pkg-config ruby-full bison wget git
+
+      - name: Install Android NDK 23.2.8568313
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;23.2.8568313"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/23.2.8568313" >> "$GITHUB_ENV"
+
+      # Building Ruby, OpenAL, OpenSSL... takes a while, so keep the result between runs.
+      - name: Cache engine build
+        uses: actions/cache@v4
+        with:
+          path: app/jni
+          key: engine-${{ hashFiles('scripts/build-engine.sh') }}
+
+      - name: Build engine dependencies
+        run: ./scripts/build-engine.sh
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+      - name: Build APK
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: KihraMaker-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: KihraMaker-apk
+          path: app/build/outputs/apk/release/*.apk

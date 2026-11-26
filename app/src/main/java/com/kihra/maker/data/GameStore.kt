@@ -11,6 +11,7 @@ class GameStore(context: Context) {
         return runCatching {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { Game.fromJson(arr.getJSONObject(it)) }
+                .filter { it.path.isNotBlank() }
         }.getOrDefault(emptyList())
     }
 
@@ -20,7 +21,13 @@ class GameStore(context: Context) {
         prefs.edit().putString(KEY, arr.toString()).apply()
     }
 
+    /** Folder holding the RPG Maker RTP files (shared by all games). */
+    var rtpPath: String
+        get() = prefs.getString(RTP_KEY, "").orEmpty()
+        set(value) { prefs.edit().putString(RTP_KEY, value).apply() }
+
     private companion object {
         const val KEY = "games"
+        const val RTP_KEY = "rtpPath"
     }
 }

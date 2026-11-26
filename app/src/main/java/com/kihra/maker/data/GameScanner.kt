@@ -1,12 +1,10 @@
 package com.kihra.maker.data
 
-import android.content.Context
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
+import java.io.File
 import java.nio.charset.Charset
 
 /**
- * Checks a picked folder for an RPG Maker game by reading Game.ini.
+ * Looks for an RPG Maker game by reading Game.ini.
  *   RGSS301.dll -> VX Ace, RGSS202E.dll -> VX, RGSS102E.dll -> XP
  */
 object GameScanner {
@@ -16,18 +14,30 @@ object GameScanner {
         data class Fail(val reason: String) : Result
     }
 
-    fun scan(context: Context, treeUri: Uri): Result {
-        val root = DocumentFile.fromTreeUri(context, treeUri)
-            ?: return Result.Fail("Can't open that folder.")
+    /** Finds the folder holding Game.ini, looking inside sub-folders too (zips often nest). */
+    fun findGameRoot(dir: File, maxDepth: Int = 3): File? {
+        var level = listOf(dir)
+        repeat(maxDepth + 1) {
+            level.firstOrNull { findIni(it) != null }?.let { return it }
+            level = level.flatMap { d -> d.listFiles { f -> f.isDirectory }?.toList().orEmpty() }
+            if (level.isEmpty()) return null
+        }
+        return null
+    }
 
-        val ini = root.findFile("Game.ini")
-            ?: return Result.Fail("No Game.ini found. Pick the folder that contains Game.ini.")
+    private fun findIni(dir: File): File? =
+        dir.listFiles { f -> f.isFile && f.name.equals("Game.ini", ignoreCase = true) }?.firstOrNull()
 
-        val bytes = runCatching {
-            context.contentResolver.openInputStream(ini.uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return Result.Fail("Couldn't read Game.ini.")
+    fun scan(dir: File, extracted: Boolean = false, extractRoot: String = ""): Result {
+        if (!dir.isDirectory) return Result.Fail("That folder can't be opened.")
+        val root = findGameRoot(dir)
+            ?: return Result.Fail("No Game.ini found in that folder. Pick the folder that contains Game.ini.")
+        val ini = findIni(root) ?: return Result.Fail("No Game.ini found.")
 
+        val bytes = runCatching { ini.readBytes() }.getOrNull()
+            ?: return Result.Fail("Couldn't read Game.ini.")
         val values = parseIni(decode(bytes))
+
         val library = values["library"].orEmpty().lowercase()
         val rgss = when {
             "rgss3" in library -> Rgss.VX_ACE
@@ -35,30 +45,34 @@ object GameScanner {
             "rgss1" in library -> Rgss.XP
             else -> Rgss.UNKNOWN
         }
-
-        val title = values["title"]?.takeIf { it.isNotBlank() } ?: root.name ?: "Untitled game"
+        val title = values["title"]?.takeIf { it.isNotBlank() } ?: root.name
 
         return Result.Ok(
             Game(
-                id = treeUri.toString(),
-                treeUri = treeUri.toString(),
+                id = root.absolutePath,
+                path = root.absolutePath,
                 title = title,
                 rgss = rgss,
                 rtp = values["rtp"].orEmpty(),
                 addedAt = System.currentTimeMillis(),
+                extracted = extracted,
+                extractRoot = extractRoot,
             )
         )
     }
 
     private fun decode(bytes: ByteArray): String {
         val utf8 = String(bytes, Charsets.UTF_8)
-        return if ('�' in utf8) String(bytes, Charset.forName("windows-1252")) else utf8
+        if ('\uFFFD' !in utf8) return utf8
+        // Japanese games usually save Game.ini as Shift-JIS.
+        val sjis = runCatching { String(bytes, Charset.forName("windows-31j")) }.getOrNull()
+        return sjis ?: String(bytes, Charset.forName("windows-1252"))
     }
 
     private fun parseIni(text: String): Map<String, String> {
         val out = HashMap<String, String>()
         for (line in text.lineSequence()) {
-            val trimmed = line.trim().removePrefix("﻿")
+            val trimmed = line.trim().removePrefix("\uFEFF")
             if (trimmed.isEmpty() || trimmed.startsWith("[") || trimmed.startsWith(";")) continue
             val i = trimmed.indexOf('=')
             if (i <= 0) continue

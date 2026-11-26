@@ -84,14 +84,14 @@ fun GameDetailScreen(
         ) {
             if (!game.rgss.supported) {
                 InfoCard(
-                    "This looks like ${game.rgss.label}. Only RPG Maker VX Ace games " +
-                        "are supported right now.",
+                    "Game.ini doesn't point to an RPG Maker XP, VX or VX Ace engine, " +
+                        "so this game can't be started.",
                     isError = true,
                 )
             } else if (game.rtp.isNotBlank()) {
                 InfoCard(
                     "This game uses the ${game.rtp} RTP. If it can't find its default " +
-                        "graphics or sounds, the RTP files need to be provided.",
+                        "graphics or sounds, set the RTP folder with the gear icon in the library.",
                     isError = false,
                 )
             }
@@ -120,28 +120,28 @@ fun GameDetailScreen(
                 }
             }
 
-            Text("Frame rate limit", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Frame rate", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(30, 60).forEach { fps ->
+                listOf(0 to "Game default", 30 to "30 FPS", 60 to "60 FPS").forEach { (fps, label) ->
                     FilterChip(
                         selected = s.fpsCap == fps,
                         onClick = { onSettingsChange(s.copy(fpsCap = fps)) },
-                        label = { Text("$fps FPS") },
+                        label = { Text(label) },
                     )
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("Show FPS counter")
-                Switch(
-                    checked = s.showFps,
-                    onCheckedChange = { onSettingsChange(s.copy(showFps = it)) },
-                )
-            }
+            SwitchRow(
+                "Frame skip (smoother on slow phones)",
+                s.frameSkip,
+            ) { onSettingsChange(s.copy(frameSkip = it)) }
+
+            SwitchRow(
+                "Smooth scaling (blurs pixels)",
+                s.smoothScaling,
+            ) { onSettingsChange(s.copy(smoothScaling = it)) }
+
+            SwitchRow("Show FPS counter", s.showFps) { onSettingsChange(s.copy(showFps = it)) }
 
             SectionTitle("Controls")
 
@@ -165,7 +165,12 @@ fun GameDetailScreen(
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
             title = { Text("Remove game?") },
-            text = { Text("This only removes it from the library. Your game files stay untouched.") },
+            text = {
+                Text(
+                    if (game.extracted) "This deletes the unpacked copy made from your zip. The zip itself is not touched."
+                    else "This only removes it from the library. Your game files stay untouched."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { confirmRemove = false; onRemove() }) { Text("Remove") }
             },
@@ -173,6 +178,18 @@ fun GameDetailScreen(
                 TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

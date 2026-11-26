@@ -17,8 +17,17 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,10 +60,15 @@ import kotlin.math.abs
 @Composable
 fun LibraryScreen(
     games: List<Game>,
-    onAdd: () -> Unit,
+    rtpPath: String,
+    onAddFolder: () -> Unit,
+    onAddZip: () -> Unit,
+    onSetRtp: () -> Unit,
     onOpen: (Game) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
+    var addMenu by remember { mutableStateOf(false) }
+    var rtpDialog by remember { mutableStateOf(false) }
     val shown = remember(games, query) {
         games
             .filter { it.title.contains(query, ignoreCase = true) }
@@ -66,22 +80,64 @@ fun LibraryScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Kihra Maker", fontWeight = FontWeight.SemiBold) },
+                actions = {
+                    IconButton(onClick = { rtpDialog = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "RTP folder")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAdd,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("Add game") },
-            )
+            Box {
+                ExtendedFloatingActionButton(
+                    onClick = { addMenu = true },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    text = { Text("Add game") },
+                )
+                DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Game folder") },
+                        leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+                        onClick = { addMenu = false; onAddFolder() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Zip file") },
+                        leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
+                        onClick = { addMenu = false; onAddZip() },
+                    )
+                }
+            }
         },
     ) { padding ->
+        if (rtpDialog) {
+            AlertDialog(
+                onDismissRequest = { rtpDialog = false },
+                title = { Text("RTP folder") },
+                text = {
+                    Text(
+                        if (rtpPath.isBlank()) {
+                            "Many games need the RPG Maker VX Ace RTP (Runtime Package) for their default " +
+                                "graphics and sounds. Pick the folder that contains it, for example RPGVXAce. " +
+                                "Games that ship their own files don't need this."
+                        } else {
+                            "Current: $rtpPath"
+                        }
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { rtpDialog = false; onSetRtp() }) { Text("Choose folder") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { rtpDialog = false }) { Text("Close") }
+                },
+            )
+        }
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (games.isEmpty()) {
-                EmptyState(onAdd)
+                EmptyState(onAddFolder, onAddZip)
             } else {
                 OutlinedTextField(
                     value = query,
@@ -112,7 +168,7 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun EmptyState(onAdd: () -> Unit) {
+private fun EmptyState(onAddFolder: () -> Unit, onAddZip: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
@@ -125,12 +181,14 @@ private fun EmptyState(onAdd: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Pick the folder of an RPG Maker VX Ace game (the one with Game.ini inside).",
+            "Add a game folder (the one with Game.ini inside) or a .zip file of the game.",
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onAdd) { Text("Add game") }
+        Button(onClick = onAddFolder) { Text("Game folder") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onAddZip) { Text("Zip file") }
     }
 }
 
@@ -169,7 +227,7 @@ private fun GameCard(game: Game, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = if (game.rgss.supported) "VX Ace" else game.rgss.label + " (unsupported)",
+                text = if (game.rgss.supported) game.rgss.label else "Not an RPG Maker XP/VX/Ace game",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (game.rgss.supported) {
                     MaterialTheme.colorScheme.onSurfaceVariant

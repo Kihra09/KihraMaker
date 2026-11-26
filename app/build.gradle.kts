@@ -6,18 +6,43 @@ plugins {
 android {
     namespace = "com.kihra.maker"
     compileSdk = 34
+    ndkVersion = "23.2.8568313"
 
     defaultConfig {
         applicationId = "com.kihra.maker"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 33
+        versionCode = 2
+        versionName = "0.2.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Debug key: installable straight away. Swap for your own key to publish.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    // The native engine (mkxp-z + SDL2 + Ruby). app/jni is created by scripts/build-engine.sh.
+    externalNativeBuild {
+        ndkBuild {
+            path = file("jni/Android.mk")
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 
@@ -42,6 +67,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    // Used by the on-screen gamepad layout
+    implementation("com.intuit.sdp:sdp-android:1.1.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
     implementation("androidx.compose.ui:ui")
