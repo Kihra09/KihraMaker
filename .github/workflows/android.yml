@@ -31,6 +31,7 @@ jobs:
             pkg-config ruby-full bison wget git
 
       - name: Install Android NDK 23.2.8568313
+        id: ndk
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
@@ -41,6 +42,7 @@ jobs:
       # Building Ruby, OpenAL, OpenSSL... takes a while. Progress is cached after every run, even a
       # failed one, so a retry continues where the last run stopped.
       - name: Restore engine build cache
+        id: cache-restore
         uses: actions/cache/restore@v5
         with:
           path: app/jni
@@ -49,26 +51,33 @@ jobs:
             engine-${{ hashFiles('scripts/build-engine.sh', 'native/Application.mk') }}-
 
       - name: Build engine dependencies
+        id: engine
         run: ./scripts/build-engine.sh
 
       - name: Save engine build cache
+        id: cache-save
+        continue-on-error: true
         if: always() && hashFiles('app/jni/.fetched') != ''
         uses: actions/cache/save@v5
         with:
           path: app/jni
           key: engine-${{ hashFiles('scripts/build-engine.sh', 'native/Application.mk') }}-${{ github.run_id }}
 
-      - uses: gradle/actions/setup-gradle@v5
+      - name: Set up Gradle
+        id: gradle-setup
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
 
       - name: Build APK
+        id: apk
         run: |
           set -o pipefail
           mkdir -p build-logs
           gradle assembleRelease --no-daemon --stacktrace --console=plain 2>&1 | tee build-logs/gradle.log
 
       - name: Check the APK contains the engine
+        id: check
         run: |
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           echo "APK: $APK"
@@ -81,9 +90,23 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      # On any failure keep the full logs so the real error can be read.
+      # Always keep the logs, with the result of every step, so the real error can be read.
+      - name: Write step summary
+        if: always()
+        run: |
+          mkdir -p build-logs
+          {
+            echo "install NDK:        ${{ steps.ndk.outcome }}"
+            echo "restore cache:      ${{ steps.cache-restore.outcome }}"
+            echo "build engine:       ${{ steps.engine.outcome }}"
+            echo "save cache:         ${{ steps.cache-save.outcome }}"
+            echo "setup gradle:       ${{ steps.gradle-setup.outcome }}"
+            echo "build APK (gradle): ${{ steps.apk.outcome }}"
+            echo "check APK:          ${{ steps.check.outcome }}"
+          } | tee build-logs/steps-summary.txt
+
       - name: Upload logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v5
         with:
           name: build-logs

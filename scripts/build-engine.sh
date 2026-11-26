@@ -130,11 +130,22 @@ build_once openal  openal
 build_once openssl openssl
 build_once ruby    ruby
 
-# Sanity check: the libraries the Android build links against must exist.
+# Sanity check: the libraries the Android build links against must exist. The unversioned
+# .so name is just a symlink; recreate it if the install only left the versioned file.
+for f in libruby.so libopenal.so; do
+  if [ ! -e "build-arm64-v8a/lib/$f" ]; then
+    versioned="$(ls build-arm64-v8a/lib/$f.* 2>/dev/null | sort | tail -n 1 || true)"
+    [ -n "$versioned" ] && ln -sf "$(basename "$versioned")" "build-arm64-v8a/lib/$f"
+  fi
+done
 for f in libiconv.a libopenal.so libcrypto.a libssl.a libruby.so; do
-  [ -e "build-arm64-v8a/lib/$f" ] || fail "Expected build output is missing: build-arm64-v8a/lib/$f"
+  [ -e "build-arm64-v8a/lib/$f" ] || {
+    echo "Contents of build-arm64-v8a/lib:"; ls -la build-arm64-v8a/lib | head -40
+    fail "Expected build output is missing: build-arm64-v8a/lib/$f"
+  }
 done
 touch .engine-ready
+ls -la build-arm64-v8a/lib | grep -E "libiconv|libopenal|libcrypto|libssl|libruby" | tee "$LOGS/engine-libs.txt"
 
 # Our own Application.mk: arm64 only, optimised release build.
 cp "$ROOT/native/Application.mk" "$JNI/Application.mk"
