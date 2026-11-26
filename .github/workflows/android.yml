@@ -63,11 +63,18 @@ jobs:
           path: app/jni
           key: engine-${{ hashFiles('scripts/build-engine.sh', 'native/Application.mk') }}-${{ github.run_id }}
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.7
         id: gradle-setup
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 8.7
+        run: |
+          set -e
+          mkdir -p build-logs
+          for i in 1 2 3; do
+            wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip && break
+            echo "download failed, retry $i"; sleep 5
+          done
+          unzip -q /tmp/gradle.zip -d "$HOME/gradle-dist"
+          echo "$HOME/gradle-dist/gradle-8.7/bin" >> "$GITHUB_PATH"
+          "$HOME/gradle-dist/gradle-8.7/bin/gradle" --version | tee build-logs/gradle-version.txt
 
       - name: Build APK
         id: apk
