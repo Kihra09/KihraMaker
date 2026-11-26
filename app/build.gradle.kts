@@ -9,7 +9,7 @@ android {
     ndkVersion = "23.2.8568313"
 
     defaultConfig {
-        applicationId = "com.kihra.maker"
+        applicationId = "kihra.kihramaker.app"
         minSdk = 26
         targetSdk = 33
         versionCode = 2

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import com.kihra.maker.data.Game
 import com.kihra.maker.data.ScaleMode
+import com.kihra.maker.data.ZipImporter
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -19,8 +20,24 @@ object EngineLauncher {
     /** Returns an error message, or null when the game was started. */
     fun launch(context: Context, game: Game, rtpPath: String): String? {
         val dir = File(game.path)
-        if (!dir.isDirectory) return "The game folder is missing: ${game.path}"
-        writeConfig(dir, game, rtpPath)?.let { return it }
+        val rtps = mutableListOf<String>()
+
+        if (game.fromZip) {
+            // Played straight from the zip: the engine works inside a save folder and sees the
+            // zip as an extra archive (mounted before the RTP, so the game's own files win).
+            val zip = File(game.zipPath)
+            if (!zip.isFile) return "The zip file is missing or was moved: ${game.zipPath}"
+            if (!zip.canRead()) return "Can't read the zip. Allow file access for the app and try again."
+            dir.mkdirs()
+            // The engine reads Game.ini before it mounts anything, so it needs a real copy here.
+            if (!ZipImporter.extractIni(zip, File(dir, "Game.ini"))) return "Couldn't read Game.ini from the zip."
+            rtps += game.zipPath
+        } else if (!dir.isDirectory) {
+            return "The game folder is missing: ${game.path}"
+        }
+
+        if (rtpPath.isNotBlank()) rtps += rtpPath
+        writeConfig(dir, game, rtps, mustOwn = game.fromZip)?.let { return it }
 
         context.startActivity(
             Intent(context, GameActivity::class.java)
@@ -32,12 +49,13 @@ object EngineLauncher {
     }
 
     /**
-     * The engine reads mkxp.json from the game folder. We only write (or update) the file when it is
-     * missing or was made by us, so a config the game or the player supplied is never overwritten.
+     * The engine reads mkxp.json from its working folder. For a normal game folder we only write (or
+     * update) the file when it is missing or was made by us, so a config the game or the player
+     * supplied is never overwritten. A zip game's save folder is ours, so it is always rewritten.
      */
-    private fun writeConfig(dir: File, game: Game, rtpPath: String): String? {
+    private fun writeConfig(dir: File, game: Game, rtps: List<String>, mustOwn: Boolean): String? {
         val file = File(dir, "mkxp.json")
-        if (file.exists()) {
+        if (file.exists() && !mustOwn) {
             val ours = runCatching { JSONObject(file.readText()).optString(MARKER) == MARKER_VALUE }
                 .getOrDefault(false)
             if (!ours) return null
@@ -53,7 +71,7 @@ object EngineLauncher {
             put("integerScalingActive", s.scaleMode == ScaleMode.INTEGER)
             put("vsync", false)
             put("enableSettings", false)
-            if (rtpPath.isNotBlank()) put("RTP", JSONArray().put(rtpPath))
+            if (rtps.isNotEmpty()) put("RTP", JSONArray(rtps))
         }
         return runCatching { file.writeText(json.toString(2)) }.exceptionOrNull()
             ?.let { "Can't write the game's settings file (is the folder read-only?)." }

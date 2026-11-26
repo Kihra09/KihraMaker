@@ -3,7 +3,7 @@
 # cross-compiles them (OpenSSL, Ruby, OpenAL, ...) for arm64 with the Android NDK.
 #
 # Needs ANDROID_NDK_HOME (NDK 23.2.8568313) and: build-essential cmake xxd autoconf
-# automake libtool pkg-config ruby bison wget git
+# automake libtool libtool-bin pkg-config ruby bison wget git
 #
 # Every step writes its own log into build-logs/ and the failing step's log tail is
 # printed, so the real error is always visible (not buried under parallel output).
@@ -28,7 +28,8 @@ TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$ARCH/bin"
 [ -x "$TOOLCHAIN_BIN/aarch64-linux-android21-clang" ] || fail "NDK clang not found in $TOOLCHAIN_BIN"
 
 missing=""
-for tool in git wget make cmake xxd autoconf automake libtool pkg-config ruby bison; do
+# (Ubuntu's "libtool" package ships libtoolize; the "libtool" command itself is in libtool-bin.)
+for tool in git wget make cmake xxd autoconf automake libtoolize libtool pkg-config ruby bison; do
   command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
 done
 [ -z "$missing" ] || fail "Missing build tools:$missing"

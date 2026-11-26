@@ -24,6 +24,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -53,6 +54,7 @@ fun GameDetailScreen(
     onBack: () -> Unit,
     onSettingsChange: (GameSettings) -> Unit,
     onPlay: () -> Unit,
+    onUnpack: () -> Unit,
     onRemove: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -94,6 +96,21 @@ fun GameDetailScreen(
                         "graphics or sounds, set the RTP folder with the gear icon in the library.",
                     isError = false,
                 )
+            }
+
+            if (game.fromZip) {
+                InfoCard(
+                    "Playing straight from the zip, nothing is unpacked. Saves and settings are in " +
+                        "Android/data/kihra.kihramaker.app/files/saves.",
+                    isError = false,
+                )
+                if (game.zipCompressed) {
+                    InfoCard(
+                        "This zip is compressed, so loading and music can be slower than from an " +
+                            "unpacked copy.",
+                        isError = false,
+                    )
+                }
             }
 
             Button(
@@ -155,6 +172,12 @@ fun GameDetailScreen(
                 valueRange = 0.1f..1f,
             )
 
+            if (game.fromZip) {
+                OutlinedButton(onClick = onUnpack, modifier = Modifier.fillMaxWidth()) {
+                    Text("Unpack game (faster, uses more storage)")
+                }
+            }
+
             TextButton(onClick = { confirmRemove = true }) {
                 Text("Remove from library", color = MaterialTheme.colorScheme.error)
             }
@@ -167,8 +190,11 @@ fun GameDetailScreen(
             title = { Text("Remove game?") },
             text = {
                 Text(
-                    if (game.extracted) "This deletes the unpacked copy made from your zip. The zip itself is not touched."
-                    else "This only removes it from the library. Your game files stay untouched."
+                    when {
+                        game.extracted -> "This deletes the unpacked copy made from your zip, including its save files. The zip itself is not touched."
+                        game.fromZip -> "This only removes it from the library. The zip and your saves stay where they are."
+                        else -> "This only removes it from the library. Your game files stay untouched."
+                    }
                 )
             },
             confirmButton = {

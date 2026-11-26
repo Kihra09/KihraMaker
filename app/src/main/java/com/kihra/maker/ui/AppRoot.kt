@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -49,6 +50,7 @@ fun AppRoot(store: GameStore) {
     /** Megabytes unpacked so far while a zip is being imported, null when idle. */
     var importedMb by remember { mutableStateOf<Long?>(null) }
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingDenied by remember { mutableStateOf<(() -> Unit)?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     fun update(new: List<Game>) {
@@ -73,9 +75,12 @@ fun AppRoot(store: GameStore) {
     // ---- Storage access (folders on shared storage are plain paths for the engine) ----
     fun runPendingIfAllowed() {
         val action = pending
+        val denied = pendingDenied
         pending = null
+        pendingDenied = null
         if (Storage.hasAccess(context)) action?.invoke()
-        else message = "Storage access is needed to use game folders. Zip games work without it."
+        else if (denied != null) denied()
+        else message = "File access is needed to use game folders."
     }
 
     val allFilesLauncher = rememberLauncherForActivityResult(
@@ -86,12 +91,13 @@ fun AppRoot(store: GameStore) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { runPendingIfAllowed() }
 
-    fun withStorage(action: () -> Unit) {
+    fun withStorage(onDenied: (() -> Unit)? = null, action: () -> Unit) {
         if (Storage.hasAccess(context)) {
             action()
             return
         }
         pending = action
+        pendingDenied = onDenied
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             allFilesLauncher.launch(Storage.allFilesIntent(context))
         } else {
@@ -120,10 +126,8 @@ fun AppRoot(store: GameStore) {
         }
     }
 
-    val zipPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    /** Unpacks a zip into app storage (works from any file provider, no file access needed). */
+    fun unpackUri(uri: Uri, note: String? = null) {
         scope.launch {
             importedMb = 0
             val result = withContext(Dispatchers.IO) {
@@ -131,7 +135,59 @@ fun AppRoot(store: GameStore) {
             }
             importedMb = null
             addGame(result)
+            if (note != null && result is GameScanner.Result.Ok) {
+                message = "Added ${result.game.title}. $note"
+            }
         }
+    }
+
+    /** Plays straight from the zip when possible, otherwise unpacks it. */
+    fun addZip(uri: Uri) {
+        val path = PathUtils.documentUriToPath(uri)
+        if (path == null) {
+            unpackUri(uri)
+            return
+        }
+        withStorage(onDenied = { unpackUri(uri, "File access wasn't allowed, so it was unpacked.") }) {
+            scope.launch {
+                val file = File(path)
+                val analysis = withContext(Dispatchers.IO) {
+                    if (file.canRead()) ZipImporter.analyze(file) else null
+                }
+                when {
+                    analysis == null -> unpackUri(uri, "It can't be read directly, so it was unpacked.")
+                    !analysis.ok -> unpackUri(uri, "Unpacked: ${analysis.reason}")
+                    else -> addGame(GameScanner.scanZip(context, file, analysis))
+                }
+            }
+        }
+    }
+
+    /** Switches a zip game to an unpacked copy (faster loading) and carries its saves over. */
+    fun unpackGame(game: Game) {
+        scope.launch {
+            importedMb = 0
+            val result = withContext(Dispatchers.IO) {
+                ZipImporter.importFile(context, File(game.zipPath)) { mb -> importedMb = mb }
+            }
+            importedMb = null
+            when (result) {
+                is GameScanner.Result.Ok -> {
+                    val fresh = result.game.copy(settings = game.settings, lastPlayed = game.lastPlayed)
+                    withContext(Dispatchers.IO) { ZipImporter.copySaves(File(game.path), File(fresh.path)) }
+                    update(games.map { if (it.id == game.id) fresh else it }.distinctBy { it.id })
+                    openId = fresh.id
+                    message = "Unpacked. Your saves were copied over."
+                }
+                is GameScanner.Result.Fail -> message = result.reason
+            }
+        }
+    }
+
+    val zipPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) addZip(uri)
     }
 
     val rtpPicker = rememberLauncherForActivityResult(
@@ -180,9 +236,10 @@ fun AppRoot(store: GameStore) {
                         update(games.map { if (it.id == open.id) played else it })
                         EngineLauncher.launch(context, played, rtpPath)?.let { message = it }
                     }
-                    // Zip games live in the app's own storage; folders and the RTP need file access.
-                    if (open.extracted && rtpPath.isBlank()) start() else withStorage(start)
+                    // Unpacked games live in the app's own storage; folders, zips and the RTP need file access.
+                    if (open.extracted && rtpPath.isBlank()) start() else withStorage(action = start)
                 },
+                onUnpack = { unpackGame(open) },
                 onRemove = {
                     val removed = open
                     update(games.filter { it.id != removed.id })

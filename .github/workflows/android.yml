@@ -17,9 +17,9 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -27,7 +27,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y build-essential cmake xxd autoconf automake libtool \
+          sudo apt-get install -y build-essential cmake xxd autoconf automake libtool libtool-bin \
             pkg-config ruby-full bison wget git
 
       - name: Install Android NDK 23.2.8568313
@@ -41,7 +41,7 @@ jobs:
       # Building Ruby, OpenAL, OpenSSL... takes a while, so keep the result between runs.
       # (The cache is only saved when the whole job succeeds, so a broken build is never cached.)
       - name: Cache engine build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: app/jni
           key: engine-${{ hashFiles('scripts/build-engine.sh', 'native/Application.mk') }}
@@ -49,7 +49,7 @@ jobs:
       - name: Build engine dependencies
         run: ./scripts/build-engine.sh
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: 8.7
 
@@ -63,7 +63,7 @@ jobs:
           unzip -l "$APK" | grep -E "lib/arm64-v8a/lib(mkxp-z|SDL2|ruby|openal)\.so"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libmkxp-z.so" || { echo "::error::libmkxp-z.so missing from the APK"; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: KihraMaker-apk
           path: app/build/outputs/apk/release/*.apk
@@ -72,7 +72,7 @@ jobs:
       # On any failure keep the full logs so the real error can be read.
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-logs
           path: |

@@ -12,6 +12,16 @@ object PathUtils {
      */
     fun treeUriToPath(uri: Uri): String? {
         val docId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
+        return idToPath(docId)
+    }
+
+    /** Same for a single picked file, e.g. a .zip. */
+    fun documentUriToPath(uri: Uri): String? {
+        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
+        return idToPath(docId)
+    }
+
+    private fun idToPath(docId: String): String? {
         val sep = docId.indexOf(':')
         if (sep < 0) return null
         val volume = docId.substring(0, sep)

@@ -31,7 +31,10 @@ data class GameSettings(
 
 data class Game(
     val id: String,
-    /** Real folder path of the game (the folder that contains Game.ini). */
+    /**
+     * Working folder of the engine. For normal and unpacked games this is the game folder
+     * (the one with Game.ini). For games played straight from a zip it is a save folder in app storage.
+     */
     val path: String,
     val title: String,
     val rgss: Rgss,
@@ -43,7 +46,13 @@ data class Game(
     val extractRoot: String = "",
     val lastPlayed: Long = 0L,
     val settings: GameSettings = GameSettings(),
+    /** Non-empty when the game is played straight from this .zip without unpacking. */
+    val zipPath: String = "",
+    /** The zip uses compression, so loading can be slower than from an unpacked game. */
+    val zipCompressed: Boolean = false,
 ) {
+    val fromZip: Boolean get() = zipPath.isNotEmpty()
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("path", path)
@@ -54,6 +63,8 @@ data class Game(
         put("extracted", extracted)
         put("extractRoot", extractRoot)
         put("lastPlayed", lastPlayed)
+        put("zipPath", zipPath)
+        put("zipCompressed", zipCompressed)
         put("scaleMode", settings.scaleMode.name)
         put("fpsCap", settings.fpsCap)
         put("frameSkip", settings.frameSkip)
@@ -80,6 +91,8 @@ data class Game(
                 extracted = o.optBoolean("extracted", false),
                 extractRoot = o.optString("extractRoot", ""),
                 lastPlayed = o.optLong("lastPlayed", 0L),
+                zipPath = o.optString("zipPath", ""),
+                zipCompressed = o.optBoolean("zipCompressed", false),
                 settings = GameSettings(
                     scaleMode = runCatching { ScaleMode.valueOf(o.getString("scaleMode")) }
                         .getOrDefault(ScaleMode.FIT),
