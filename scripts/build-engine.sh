@@ -53,8 +53,10 @@ run_step() {
     local code=$?
     echo "::endgroup::"
     echo "::error::Step '$name' failed (exit $code). Last lines of its log:"
+    echo "=============== $name.log: error lines ==============="
+    grep -n -i -E "error|\*\*\*|undefined reference|cannot|fatal|not found" "$log" | tail -n 40 || true
     echo "=============== $name.log (tail) ==============="
-    tail -n 120 "$log" || true
+    tail -n 80 "$log" || true
     echo "================================================"
     # configure scripts keep the real reason in config.log
     for cfg in $(find "$JNI" -maxdepth 3 -name config.log -newer "$LOGS/.start" 2>/dev/null | head -3); do
@@ -79,7 +81,9 @@ retry() { # retry <times> <command...>
 touch "$LOGS/.start"
 
 # ---------- fetch sources + dependencies ----------
-if [ ! -f "$JNI/.engine-ready" ]; then
+# Every finished stage leaves a marker file, so a re-run (or a restored cache) resumes where
+# the last run stopped instead of starting from zero.
+if [ ! -f "$JNI/.fetched" ]; then
   rm -rf "$JNI"
   TMP="$(mktemp -d)"
   run_step fetch-port bash -c "
@@ -93,7 +97,6 @@ if [ ! -f "$JNI/.engine-ready" ]; then
   cd "$JNI"
   chmod +x get_deps.sh
   # get_deps.sh skips folders that already exist, so a retry only fetches what is missing.
-  export -f retry
   run_step fetch-deps retry 3 ./get_deps.sh
   run_step make-xxd bash -c "cd mkxp-z && chmod +x make_xxd.sh && ./make_xxd.sh"
 
@@ -103,20 +106,29 @@ if [ ! -f "$JNI/.engine-ready" ]; then
   # 16 KB page support for the shared libraries built here (Ruby, OpenAL).
   sed -i 's/^\(LDFLAGS *:= .*\)$/\1 -Wl,-z,max-page-size=16384/' Makefile
 
-  # One dependency at a time (each already builds with all cores): easy-to-read errors.
-  run_step build-iconv   make iconv
-  run_step build-openal  make openal
-  run_step build-openssl make openssl
-  run_step build-ruby    make ruby
-
-  # Sanity check: the libraries the Android build links against must exist.
-  for f in lib/libruby.so lib/libopenal.so lib/libssl.a lib/libiconv.a; do
-    [ -e "build-arm64-v8a/$f" ] || [ -e "build-arm64-v8a/${f%.so}.so.3.1.0" ] \
-      || fail "Expected build output is missing: build-arm64-v8a/$f"
-  done
-
-  touch .engine-ready
+  # Ruby's "make" also builds hundreds of C-API test extensions (spec/ruby/optional/capi/ext/*.c)
+  # when Ruby is shared. We don't need them and one fails when cross-compiling: remove the sources.
+  rm -f ruby/spec/ruby/optional/capi/ext/*.c
+  touch .fetched
 fi
+
+cd "$JNI"
+build_once() { # build_once <name> <make target>
+  if [ -f ".done-$1" ]; then echo "$1: already built (cached)"; return; fi
+  run_step "build-$1" make "$2"
+  touch ".done-$1"
+}
+# One dependency at a time (each already builds with all cores): easy-to-read errors.
+build_once iconv   iconv
+build_once openal  openal
+build_once openssl openssl
+build_once ruby    ruby
+
+# Sanity check: the libraries the Android build links against must exist.
+for f in libiconv.a libopenal.so libcrypto.a libssl.a libruby.so; do
+  [ -e "build-arm64-v8a/lib/$f" ] || fail "Expected build output is missing: build-arm64-v8a/lib/$f"
+done
+touch .engine-ready
 
 # Our own Application.mk: arm64 only, optimised release build.
 cp "$ROOT/native/Application.mk" "$JNI/Application.mk"
