@@ -31,10 +31,56 @@ object GameScanner {
     private fun findIni(dir: File): File? =
         dir.listFiles { f -> f.isFile && f.name.equals("Game.ini", ignoreCase = true) }?.firstOrNull()
 
+    /** RPG Maker MV/MZ: a project folder with js/rpg_core.js (MV) or js/rmmz_core.js (MZ), optionally inside www/. */
+    private fun webKind(dir: File): Rgss? {
+        for (base in listOf(File(dir, "www"), dir)) {
+            if (!File(base, "index.html").isFile) continue
+            if (File(base, "js/rmmz_core.js").isFile) return Rgss.MZ
+            if (File(base, "js/rpg_core.js").isFile) return Rgss.MV
+        }
+        return null
+    }
+
+    private fun findWebRoot(dir: File, maxDepth: Int = 3): Pair<File, Rgss>? {
+        var level = listOf(dir)
+        repeat(maxDepth + 1) {
+            for (d in level) webKind(d)?.let { return d to it }
+            level = level.flatMap { d -> d.listFiles { f -> f.isDirectory }?.toList().orEmpty() }
+            if (level.isEmpty()) return null
+        }
+        return null
+    }
+
+    private fun webTitle(root: File): String {
+        val pkg = File(root, "package.json")
+        runCatching {
+            val o = org.json.JSONObject(pkg.readText())
+            val t = o.optJSONObject("window")?.optString("title").orEmpty().ifBlank { o.optString("name") }
+            if (t.isNotBlank()) return t
+        }
+        return root.name
+    }
+
     fun scan(dir: File, extracted: Boolean = false, extractRoot: String = ""): Result {
         if (!dir.isDirectory) return Result.Fail("That folder can't be opened.")
+        if (findGameRoot(dir) == null) {
+            findWebRoot(dir)?.let { (root, kind) ->
+                return Result.Ok(
+                    Game(
+                        id = root.absolutePath,
+                        path = root.absolutePath,
+                        title = webTitle(root),
+                        rgss = kind,
+                        rtp = "",
+                        addedAt = System.currentTimeMillis(),
+                        extracted = extracted,
+                        extractRoot = extractRoot,
+                    )
+                )
+            }
+        }
         val root = findGameRoot(dir)
-            ?: return Result.Fail("No Game.ini found in that folder. Pick the folder that contains Game.ini.")
+            ?: return Result.Fail("No RPG Maker game found there. Pick the folder that contains Game.ini (XP/VX/Ace) or index.html (MV/MZ).")
         val ini = findIni(root) ?: return Result.Fail("No Game.ini found.")
         val bytes = runCatching { ini.readBytes() }.getOrNull()
             ?: return Result.Fail("Couldn't read Game.ini.")

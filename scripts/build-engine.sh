@@ -94,6 +94,10 @@ if [ ! -f "$JNI/.fetched" ]; then
   "
   rm -rf "$TMP"
 
+  # KihraMaker patch: allow Graphics.frame_rate up to 960 (fast forward up to 16x of a 60 fps game).
+  sed -i 's/clamp(value, 10, 120)/clamp(value, 10, 960)/' "$JNI/mkxp-z/src/display/graphics.cpp"
+  grep -q 'clamp(value, 10, 960)' "$JNI/mkxp-z/src/display/graphics.cpp" || fail "Frame rate patch did not apply"
+
   cd "$JNI"
   chmod +x get_deps.sh
   # get_deps.sh skips folders that already exist, so a retry only fetches what is missing.

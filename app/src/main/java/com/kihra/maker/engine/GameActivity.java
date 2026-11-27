@@ -116,7 +116,7 @@ public class GameActivity extends SDLActivity {
                     new File(base, "controls/" + Shots.INSTANCE.key(mGameId) + ".json"),
                     new File(base, "controls/default.json"),
                     getIntent().getBooleanExtra(EngineLauncher.EXTRA_JOYSTICK, false),
-                    cfg.diagonalMovement, cfg.opacity, downL, upL);
+                    cfg.diagonalMovement, cfg.opacity, downL, upL, this::showMenu);
             mControls.install();
         }
 
@@ -130,9 +130,28 @@ public class GameActivity extends SDLActivity {
         tvFps.setLayoutParams(params);
         if (mLayout != null) {
             mLayout.addView(tvFps);
-            addToolbar(getIntent().getBooleanExtra(EngineLauncher.EXTRA_SHOT_BUTTON, true));
             setupWallpaper();
+            setupRenderScale();
         }
+    }
+
+    /**
+     * Internal resolution: the game is drawn into a surface of (screen size x scale) pixels and the
+     * system stretches it to the screen. Below 1x it is blurrier and does a little less GPU work;
+     * above 1x it is only an oversampled picture. It does not speed up the game's own logic.
+     */
+    private int mLastW = 0, mLastH = 0;
+
+    private void setupRenderScale() {
+        final float scale = Math.max(0.5f, Math.min(2f, getIntent().getFloatExtra(EngineLauncher.EXTRA_RENDER_SCALE, 1f)));
+        if (scale == 1f || mSurface == null) return;
+        mSurface.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int w = r - l, h = b - t;
+            if (w <= 0 || h <= 0 || (w == mLastW && h == mLastH)) return;
+            mLastW = w;
+            mLastH = h;
+            mSurface.getHolder().setFixedSize(Math.max(64, Math.round(w * scale)), Math.max(64, Math.round(h * scale)));
+        });
     }
 
     // ---- Wallpaper: the game screen is shrunk to the game's aspect ratio and a picture is drawn
@@ -186,7 +205,6 @@ public class GameActivity extends SDLActivity {
         }
     }
 
-    private ImageButton mFastButton;
     private ControlsEditor mControls;
     private GestureHandler mGestures;
     private final java.util.HashMap<Integer, Integer> mPadMap = new java.util.HashMap<>();
@@ -202,8 +220,6 @@ public class GameActivity extends SDLActivity {
             }
         }
     }
-    private final float[] SPEEDS = {1f, 1.5f, 2f};
-    private int mSpeedIndex = 0;
 
     private ImageButton toolButton(int icon, String description, View.OnClickListener click) {
         ImageButton b = new ImageButton(this);
@@ -218,26 +234,6 @@ public class GameActivity extends SDLActivity {
         return b;
     }
 
-    /** Small buttons at the top centre: screenshot, fast forward, cheats. */
-    private void addToolbar(boolean withScreenshot) {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        if (withScreenshot) bar.addView(toolButton(R.drawable.ic_camera, "Screenshot", v -> takeScreenshot()));
-        mFastButton = toolButton(R.drawable.ic_fast_forward, "Fast forward", v -> cycleSpeed());
-        bar.addView(mFastButton);
-        bar.addView(toolButton(R.drawable.ic_cheats, "Cheats", v -> showCheats()));
-        bar.addView(toolButton(R.drawable.ic_gamepad, "Edit controls", v -> {
-            if (mControls != null) mControls.toggle();
-        }));
-        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(
-                LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
-        lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
-        lp.topMargin = Math.round(8 * getResources().getDisplayMetrics().density);
-        bar.setLayoutParams(lp);
-        mLayout.addView(bar);
-    }
-
     // ---- Commands for the game (fast forward, cheats): the preload script reads kihra_cmd.txt ----
 
     private void sendCommand(String line) {
@@ -249,12 +245,78 @@ public class GameActivity extends SDLActivity {
         }
     }
 
-    private void cycleSpeed() {
-        mSpeedIndex = (mSpeedIndex + 1) % SPEEDS.length;
-        float x = SPEEDS[mSpeedIndex];
+    private boolean mFast = false;
+
+    /** Switches between normal speed and the fast-forward speed chosen in the game's settings. */
+    private void toggleFastForward() {
+        float chosen = getIntent().getFloatExtra(EngineLauncher.EXTRA_FF_SPEED, 2f);
+        mFast = !mFast;
+        float x = mFast ? chosen : 1f;
         sendCommand("speed " + x);
-        if (mFastButton != null) mFastButton.setAlpha(x > 1f ? 1f : 0.35f);
-        Toast.makeText(this, x > 1f ? "Fast forward " + x + "x" : "Normal speed", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, mFast ? "Fast forward " + (int) chosen + "x" : "Normal speed", Toast.LENGTH_SHORT).show();
+    }
+
+    /** The one menu button: everything that used to be a row of small buttons. */
+    private void showMenu() {
+        final String[] items = {
+                "Screenshot",
+                mFast ? "Fast forward: turn off" : "Fast forward: on",
+                "Cheats",
+                "Quick save",
+                "Quick load",
+                "Edit layout",
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Menu")
+                .setItems(items, (d, i) -> {
+                    switch (i) {
+                        case 0: takeScreenshot(); break;
+                        case 1: toggleFastForward(); break;
+                        case 2: showCheats(); break;
+                        case 3: quick("qsave"); break;
+                        case 4: quick("qload"); break;
+                        case 5: if (mControls != null) mControls.toggle(); break;
+                        default: break;
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void quick(final String cmd) {
+        File ack = new File(GAME_PATH, "kihra_ack.txt");
+        ack.delete();
+        sendCommand(cmd);
+        pollAck(ack, 0);
+    }
+
+    private void pollAck(final File ack, final int tries) {
+        mMainHandler.postDelayed(() -> {
+            if (!ack.isFile()) {
+                if (tries < 12) pollAck(ack, tries + 1);
+                else Toast.makeText(this, "No answer from the game. Is it on a map?", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String text = "";
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(ack))) {
+                text = r.readLine();
+            } catch (Exception ignored) {
+            }
+            ack.delete();
+            String[] p = (text == null ? "" : text).split("\t");
+            String name = p.length > 0 && p[0].equals("qload") ? "Quick load" : "Quick save";
+            String res = p.length > 1 ? p[1] : "failed";
+            String msg;
+            switch (res) {
+                case "ok": msg = name + " done"; break;
+                case "notmap": msg = "Quick save only works on the map"; break;
+                case "nofile": msg = "No quick save yet"; break;
+                case "battle": msg = "Can't quick load during a battle"; break;
+                case "unsupported": msg = "Quick save works in RPG Maker VX Ace games only for now"; break;
+                default: msg = name + " failed";
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        }, 250);
     }
 
     private interface PromptDone {
@@ -289,40 +351,11 @@ public class GameActivity extends SDLActivity {
     }
 
     private void showCheats() {
-        final String[] items = {
-                "Add gold...", "Heal the party", "Auto-heal (on/off)", "Walk through walls (on/off)",
-                "No random battles (on/off, VX/Ace)", "Add item...", "Set switch...", "Set variable...",
-                "Party +1 level (VX Ace)"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle("Cheats")
-                .setItems(items, (d, i) -> {
-                    switch (i) {
-                        case 0:
-                            prompt("Add gold", new String[]{"Amount"}, v -> sendCommand("gold " + v[0]));
-                            break;
-                        case 1: sendCommand("heal"); break;
-                        case 2: sendCommand("god"); break;
-                        case 3: sendCommand("through"); break;
-                        case 4: sendCommand("noenc"); break;
-                        case 5:
-                            prompt("Add item", new String[]{"Item number (database)", "How many"},
-                                    v -> sendCommand("item " + v[0] + " " + v[1]));
-                            break;
-                        case 6:
-                            prompt("Set switch", new String[]{"Switch number", "1 = ON, 0 = OFF"},
-                                    v -> sendCommand("switch " + v[0] + " " + v[1]));
-                            break;
-                        case 7:
-                            prompt("Set variable", new String[]{"Variable number", "New value"},
-                                    v -> sendCommand("var " + v[0] + " " + v[1]));
-                            break;
-                        case 8: sendCommand("level"); break;
-                        default: break;
-                    }
-                })
-                .setNegativeButton("Close", null)
-                .show();
+        File base = getExternalFilesDir(null);
+        if (base == null) base = getFilesDir();
+        new CheatsDialog(this, new File(GAME_PATH),
+                new File(base, "controls/" + Shots.INSTANCE.key(mGameId) + ".pins"),
+                this::sendCommand).show();
     }
 
     /** Copies what the game is drawing (without the touch buttons) and saves it as a PNG. */

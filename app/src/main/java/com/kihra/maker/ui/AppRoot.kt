@@ -103,9 +103,12 @@ fun AppRoot(store: GameStore) {
     var shots by remember { mutableStateOf(emptyList<Shots.Shot>()) }
     var reload by remember { mutableStateOf(0) }
     var logs by remember { mutableStateOf(emptyList<File>()) }
+    var achFlags by remember { mutableStateOf(com.kihra.maker.data.Achievements.Flags()) }
     var viewingLog by remember { mutableStateOf<File?>(null) }
     var backupsFor by remember { mutableStateOf<Game?>(null) }
     var gameForPicker by remember { mutableStateOf<Game?>(null) }
+    var setupId by remember { mutableStateOf<String?>(null) }
+    var defaultsOpen by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -120,6 +123,20 @@ fun AppRoot(store: GameStore) {
         shots = sh
         val ended = withContext(Dispatchers.IO) { SessionLog.finish(context, games) }
         logs = withContext(Dispatchers.IO) { SessionLog.list(context) }
+        achFlags = withContext(Dispatchers.IO) {
+            val ctl = File(com.kihra.maker.data.AppPaths.base(context), "controls")
+            val files = ctl.listFiles()?.toList().orEmpty()
+            val st = AppSettings.load(context)
+            com.kihra.maker.data.Achievements.Flags(
+                light = st.light,
+                wallpaper = AppSettings.wallpaperFile(context).isFile,
+                goalMinutes = st.goalMinutes,
+                customLayout = files.any { it.name.endsWith(".json") },
+                pinnedCheat = files.any { it.name.endsWith(".pins") && it.length() > 0 },
+                backup = games.any { SaveBackup.list(context, it).isNotEmpty() },
+                shotGames = sh.map { it.gameKey }.toSet().size,
+            )
+        }
         if (ended != null && ended.crashed) {
             message = "${ended.title} closed unexpectedly. A log was saved in Settings > Logs."
         }
@@ -136,6 +153,7 @@ fun AppRoot(store: GameStore) {
     val wallpaperFile = remember(wallpaperVersion) { AppSettings.wallpaperFile(context).takeIf { it.isFile } }
     val wallpaperImage = rememberImage(wallpaperFile, 1600)
     val daysPlayed = remember(segments) { PlayLog.daysPlayed(segments) }
+    val activeStreak = remember(segments) { PlayLog.activeStreak(segments) }
     val shotsByKey = remember(shots) { shots.groupBy { it.gameKey } }
 
     fun update(new: List<Game>) {
@@ -149,7 +167,7 @@ fun AppRoot(store: GameStore) {
                 if (games.any { it.id == result.game.id }) {
                     message = "That game is already in your library."
                 } else {
-                    update(games + result.game)
+                    update(games + result.game.copy(settings = settings.defaults))
                     message = "Added ${result.game.title}"
                 }
             }
@@ -265,6 +283,27 @@ fun AppRoot(store: GameStore) {
                     message = "Unpacked. Your saves were copied over."
                 }
                 is GameScanner.Result.Fail -> message = result.reason
+            }
+        }
+    }
+
+    val exePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val path = PathUtils.documentUriToPath(uri)
+        val folder = path?.let { File(it).parentFile }
+        if (folder == null) {
+            message = "Can't find that file's folder. Use \"Game folder\" and pick the folder that holds the .exe."
+            return@rememberLauncherForActivityResult
+        }
+        withStorage {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { GameScanner.scan(folder) }
+                addGame(result)
+                if (result is GameScanner.Result.Fail) {
+                    message = "The .exe itself can't run on Android, and no RPG Maker game files were found next to it."
+                }
             }
         }
     }
@@ -443,6 +482,7 @@ fun AppRoot(store: GameStore) {
                         onResetIcon = { GameArt.resetIcon(context, open); IconVersion.value++ },
                         onOpenBackups = { backupsFor = open },
                         onExportSaves = { exportSaves(open) },
+                        onOpenSetup = { setupId = open.id },
                         onImportSaves = {
                             gameForPicker = open
                             importSavesPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
@@ -468,12 +508,15 @@ fun AppRoot(store: GameStore) {
                     // Pages: Assistant, Library, Gallery, Settings. Swiping and the bar both work.
                     HorizontalPager(state = pagerState, modifier = mod) { page ->
                         when (page) {
-                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size, goalMinutes = settings.goalMinutes)
+                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size, goalMinutes = settings.goalMinutes, flags = achFlags)
                             1 -> LibraryScreen(
                                 games = games,
                                 onAddFolder = { withStorage { folderPicker.launch(null) } },
+                                onAddExe = { exePicker.launch(arrayOf("*/*")) },
                                 onAddZip = { zipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
-                                onOpen = { openId = it.id },
+                                onOpen = { if (it.configured) openId = it.id else setupId = it.id },
+                                onSetup = { setupId = it.id },
+                                activeStreak = activeStreak,
                                 playtime = playtime,
                                 daysPlayed = daysPlayed,
                                 shotsByKey = shotsByKey,
@@ -526,6 +569,7 @@ fun AppRoot(store: GameStore) {
                                     }
                                 },
                                 onExportAll = { exportEverything() },
+                                onOpenDefaults = { defaultsOpen = true },
                                 onRestoreAll = { restoreAllPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                             )
                         }
@@ -578,6 +622,38 @@ fun AppRoot(store: GameStore) {
                         Text("$mb MB done. Large files can take a few minutes.")
                     }
                 },
+            )
+        }
+
+        games.firstOrNull { it.id == setupId }?.let { g ->
+            GameSetupDialog(
+                game = g,
+                onChange = { st -> update(games.map { if (it.id == g.id) it.copy(settings = st) else it }) },
+                onDone = {
+                    val wasNew = !g.configured
+                    update(games.map { if (it.id == g.id) it.copy(configured = true) else it })
+                    setupId = null
+                    if (wasNew && openId == null) openId = g.id
+                },
+                actions = DetailActions(
+                    onFavorite = {}, onStatus = {}, onRename = {},
+                    onPickIcon = {}, onResetIcon = {},
+                    onOpenBackups = { backupsFor = g },
+                    onExportSaves = { exportSaves(g) },
+                    onImportSaves = {
+                        gameForPicker = g
+                        importSavesPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                    },
+                ),
+                backupCount = SaveBackup.list(context, g).size,
+            )
+        }
+
+        if (defaultsOpen) {
+            DefaultsDialog(
+                s = settings.defaults,
+                onChange = { changeSettings(settings.copy(defaults = it)) },
+                onDone = { defaultsOpen = false },
             )
         }
 

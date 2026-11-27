@@ -7,7 +7,11 @@ enum class Rgss(val label: String) {
     XP("RPG Maker XP"),
     VX("RPG Maker VX"),
     VX_ACE("RPG Maker VX Ace"),
+    MV("RPG Maker MV"),
+    MZ("RPG Maker MZ"),
     UNKNOWN("Unknown engine");
+
+    val isWeb: Boolean get() = this == MV || this == MZ
 
     /** The engine handles all three, but VX Ace is the one we test and tune for. */
     val supported: Boolean get() = this != UNKNOWN
@@ -45,7 +49,53 @@ data class GameSettings(
     val gestures: String = "",
     /** Font used inside the game: "" (game's own), "fira" or "mplus". */
     val gameFont: String = "",
-)
+    /** Fast-forward speed used by the menu button: 1, 2, 4, 8 or 16. */
+    val ffSpeed: Int = 2,
+    /** Internal resolution multiplier, 0.5 .. 2. */
+    val renderScale: Float = 1f,
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("scaleMode", scaleMode.name)
+        put("fpsCap", fpsCap)
+        put("frameSkip", frameSkip)
+        put("smoothScaling", smoothScaling)
+        put("showFps", showFps)
+        put("controlsOpacity", controlsOpacity.toDouble())
+        put("controlsScale", controlsScale)
+        put("joystick", joystick)
+        put("diagonalPad", diagonalPad)
+        put("haptics", haptics)
+        put("screenshotButton", screenshotButton)
+        put("customRuby", customRuby)
+        put("padMap", padMap)
+        put("gestures", gestures)
+        put("gameFont", gameFont)
+        put("ffSpeed", ffSpeed)
+        put("renderScale", renderScale.toDouble())
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject): GameSettings = GameSettings(
+            scaleMode = runCatching { ScaleMode.valueOf(o.getString("scaleMode")) }.getOrDefault(ScaleMode.FIT),
+            fpsCap = o.optInt("fpsCap", 0).takeIf { it == 0 || it == 30 || it == 60 } ?: 0,
+            frameSkip = o.optBoolean("frameSkip", true),
+            smoothScaling = o.optBoolean("smoothScaling", false),
+            showFps = o.optBoolean("showFps", false),
+            controlsOpacity = o.optDouble("controlsOpacity", 0.85).toFloat(),
+            controlsScale = o.optInt("controlsScale", 100).coerceIn(50, 150),
+            joystick = o.optBoolean("joystick", false),
+            diagonalPad = o.optBoolean("diagonalPad", false),
+            haptics = o.optBoolean("haptics", true),
+            screenshotButton = o.optBoolean("screenshotButton", true),
+            customRuby = o.optString("customRuby", ""),
+            padMap = o.optString("padMap", ""),
+            gestures = o.optString("gestures", ""),
+            gameFont = o.optString("gameFont", ""),
+            ffSpeed = o.optInt("ffSpeed", 2).takeIf { it in listOf(1, 2, 4, 8, 16) } ?: 2,
+            renderScale = o.optDouble("renderScale", 1.0).toFloat().coerceIn(0.5f, 2f),
+        )
+    }
+}
 
 data class Game(
     val id: String,
@@ -71,6 +121,8 @@ data class Game(
     val favorite: Boolean = false,
     /** "", "playing", "finished" or "hold". */
     val status: String = "",
+    /** The player has been through the setup screen for this game. */
+    val configured: Boolean = false,
 ) {
     val fromZip: Boolean get() = zipPath.isNotEmpty()
 
@@ -88,6 +140,9 @@ data class Game(
         put("zipCompressed", zipCompressed)
         put("favorite", favorite)
         put("status", status)
+        put("configured", configured)
+        put("ffSpeed", settings.ffSpeed)
+        put("renderScale", settings.renderScale.toDouble())
         put("customRuby", settings.customRuby)
         put("padMap", settings.padMap)
         put("gestures", settings.gestures)
@@ -127,6 +182,7 @@ data class Game(
                 zipCompressed = o.optBoolean("zipCompressed", false),
                 favorite = o.optBoolean("favorite", false),
                 status = o.optString("status", ""),
+                configured = o.optBoolean("configured", false),
                 settings = GameSettings(
                     scaleMode = runCatching { ScaleMode.valueOf(o.getString("scaleMode")) }
                         .getOrDefault(ScaleMode.FIT),
@@ -144,6 +200,8 @@ data class Game(
                     padMap = o.optString("padMap", ""),
                     gestures = o.optString("gestures", ""),
                     gameFont = o.optString("gameFont", ""),
+                    ffSpeed = o.optInt("ffSpeed", 2).takeIf { it in listOf(1, 2, 4, 8, 16) } ?: 2,
+                    renderScale = o.optDouble("renderScale", 1.0).toFloat().coerceIn(0.5f, 2f),
                 ),
             )
         }

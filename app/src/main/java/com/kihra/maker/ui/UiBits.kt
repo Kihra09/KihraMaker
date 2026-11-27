@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -90,23 +91,46 @@ fun GameIcon(game: Game?, size: Dp, modifier: Modifier = Modifier) {
     }
 }
 
+/** The game's title picture as a wide cover; falls back to the icon. */
+@Composable
+fun GameCover(game: Game, modifier: Modifier = Modifier, maxSide: Int = 720) {
+    val context = LocalContext.current
+    val version = IconVersion.value
+    val file by produceState<File?>(null, game.id, version) {
+        value = withContext(Dispatchers.IO) { GameArt.coverFile(context, game) }
+    }
+    val bmp = rememberImage(file, maxSide)
+    if (bmp != null) {
+        Image(bitmap = bmp, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier)
+    } else {
+        Box(modifier.background(Brush.verticalGradient(listOf(Color(0xFF3A3A5A), Color(0xFF16162A)))))
+    }
+}
+
 /** Game icon with the 🔥 days-played badge at its top-left corner. */
 @Composable
-fun GameIconWithBadge(game: Game?, size: Dp, days: Int, modifier: Modifier = Modifier) {
+fun GameIconWithBadge(game: Game?, size: Dp, days: Int, modifier: Modifier = Modifier, active: Boolean = true) {
     Box(modifier) {
         GameIcon(game, size)
-        if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart))
+        if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart), active)
     }
 }
 
 @Composable
-fun FlameBadge(days: Int, modifier: Modifier = Modifier) {
+fun FlameBadge(days: Int, modifier: Modifier = Modifier, active: Boolean = true) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(topStart = 12.dp, bottomEnd = 10.dp, topEnd = 2.dp, bottomStart = 2.dp))
             .background(Color(0xCC000000))
             .padding(horizontal = 5.dp, vertical = 1.dp),
     ) {
-        Text("\uD83D\uDD25$days", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        // A grey flame means the streak is inactive; playing the game again lights it back up.
+        Text(
+            "\uD83D\uDD25$days",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (active) Color.White else Color(0xFF9E9E9E),
+            modifier = if (active) Modifier else Modifier.alpha(0.6f),
+        )
     }
 }

@@ -1,5 +1,7 @@
 package com.kihra.maker.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -76,9 +78,12 @@ fun LibraryScreen(
     games: List<Game>,
     onAddFolder: () -> Unit,
     onAddZip: () -> Unit,
+    onAddExe: () -> Unit = {},
     onOpen: (Game) -> Unit,
     playtime: Map<String, Long>,
     daysPlayed: Map<String, Int>,
+    activeStreak: Set<String> = emptySet(),
+    onSetup: (Game) -> Unit = {},
     shotsByKey: Map<String, List<Shots.Shot>>,
     view: ViewMode,
     onViewChange: (ViewMode) -> Unit,
@@ -171,6 +176,11 @@ fun LibraryScreen(
                         leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
                         onClick = { addMenu = false; onAddZip() },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Game.exe (uses the game files beside it)") },
+                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                        onClick = { addMenu = false; onAddExe() },
+                    )
                 }
             }
         },
@@ -240,7 +250,7 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(shown, key = { it.id }) { g ->
-                            GameRow(g, playtime[g.id] ?: 0L, daysPlayed[g.id] ?: 0) { onOpen(g) }
+                            GameRow(g, playtime[g.id] ?: 0L, daysPlayed[g.id] ?: 0, g.id in activeStreak, { onOpen(g) }, { onSetup(g) })
                         }
                     }
                     ViewMode.GRID -> LazyVerticalGrid(
@@ -250,7 +260,7 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(shown, key = { it.id }) { g ->
-                            GameTile(g, playtime[g.id] ?: 0L, daysPlayed[g.id] ?: 0, shotsByKey[Shots.key(g.id)]?.firstOrNull()) { onOpen(g) }
+                            GameTile(g, playtime[g.id] ?: 0L, daysPlayed[g.id] ?: 0, g.id in activeStreak, shotsByKey[Shots.key(g.id)] ?: emptyList(), { onOpen(g) }, { onSetup(g) })
                         }
                     }
                     ViewMode.CARDS -> LazyColumn(
@@ -258,7 +268,7 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         items(shown, key = { it.id }) { g ->
-                            GameCardBig(g, playtime[g.id] ?: 0L, daysPlayed[g.id] ?: 0, shotsByKey[Shots.key(g.id)] ?: emptyList()) { onOpen(g) }
+                            GameCardBig(g, playtime[g.id] ?: 0L, daysPlayed[g.id] ?: 0, g.id in activeStreak, shotsByKey[Shots.key(g.id)] ?: emptyList(), { onOpen(g) }, { onSetup(g) })
                         }
                     }
                 }
@@ -302,11 +312,11 @@ private fun lastPlayedText(ms: Long): String {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun GameRow(game: Game, playedMs: Long, days: Int, onClick: () -> Unit) {
+private fun GameRow(game: Game, playedMs: Long, days: Int, active: Boolean, onClick: () -> Unit, onLong: () -> Unit) {
     Card(
-        onClick = onClick,
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLong),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
@@ -314,13 +324,13 @@ private fun GameRow(game: Game, playedMs: Long, days: Int, onClick: () -> Unit) 
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GameIconWithBadge(game, 68.dp, days)
+            GameIconWithBadge(game, 68.dp, days, active = active)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(game.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    if (game.rgss.supported) game.rgss.label else "Not an RPG Maker XP/VX/Ace game",
+                    if (game.rgss.supported) game.rgss.label else "Not a supported RPG Maker game",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (game.rgss.supported) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 )
@@ -346,22 +356,18 @@ private fun GameRow(game: Game, playedMs: Long, days: Int, onClick: () -> Unit) 
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun GameTile(game: Game, playedMs: Long, days: Int, shot: Shots.Shot?, onClick: () -> Unit) {
+private fun GameTile(game: Game, playedMs: Long, days: Int, active: Boolean, shots: List<Shots.Shot>, onClick: () -> Unit, onLong: () -> Unit) {
     Card(
-        onClick = onClick,
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLong),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1.25f).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            val bmp = rememberImage(shot?.file, 480)
-            if (bmp != null) {
-                Image(bitmap = bmp, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { GameIcon(game, 72.dp) }
-            }
-            if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart))
+        Box(Modifier.fillMaxWidth().aspectRatio(1.4f).background(MaterialTheme.colorScheme.surfaceVariant)) {
+            GameCover(game, Modifier.fillMaxSize(), 480)
+            GameIcon(game, 44.dp, Modifier.align(Alignment.BottomStart).padding(8.dp))
+            if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart), active)
         }
         Column(Modifier.padding(12.dp)) {
             Text(game.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
@@ -371,25 +377,32 @@ private fun GameTile(game: Game, playedMs: Long, days: Int, shot: Shots.Shot?, o
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (shots.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    shots.take(3).forEach { sh ->
+                        val b = rememberImage(sh.file, 200)
+                        Box(Modifier.weight(1f).aspectRatio(1.4f).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                            if (b != null) Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                    repeat(3 - shots.take(3).size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun GameCardBig(game: Game, playedMs: Long, days: Int, shots: List<Shots.Shot>, onClick: () -> Unit) {
+private fun GameCardBig(game: Game, playedMs: Long, days: Int, active: Boolean, shots: List<Shots.Shot>, onClick: () -> Unit, onLong: () -> Unit) {
     Card(
-        onClick = onClick,
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLong),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.7f).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            val bmp = rememberImage(shots.firstOrNull()?.file, 900)
-            if (bmp != null) {
-                Image(bitmap = bmp, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { GameIcon(game, 96.dp) }
-            }
+            GameCover(game, Modifier.fillMaxSize(), 900)
             Box(
                 Modifier
                     .align(Alignment.BottomStart)
@@ -397,19 +410,23 @@ private fun GameCardBig(game: Game, playedMs: Long, days: Int, shots: List<Shots
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000))))
                     .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 12.dp),
             ) {
-                Column {
-                    Text(game.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                    Text(PlayLog.format(playedMs), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GameIcon(game, 48.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(game.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                        Text(PlayLog.format(playedMs), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
-            if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart))
+            if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart), active)
         }
-        if (shots.size > 1) {
+        if (shots.isNotEmpty()) {
             Row(
                 Modifier.fillMaxWidth().padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                shots.drop(1).take(4).forEach { s ->
+                shots.take(4).forEach { s ->
                     val b = rememberImage(s.file, 240)
                     Box(
                         Modifier
@@ -422,7 +439,7 @@ private fun GameCardBig(game: Game, playedMs: Long, days: Int, shots: List<Shots
                     }
                 }
                 // Keep the thumbnails the same size when there are fewer than four.
-                repeat(4 - shots.drop(1).take(4).size) { Spacer(Modifier.weight(1f)) }
+                repeat(4 - shots.take(4).size) { Spacer(Modifier.weight(1f)) }
             }
         } else {
             Spacer(Modifier.height(4.dp))

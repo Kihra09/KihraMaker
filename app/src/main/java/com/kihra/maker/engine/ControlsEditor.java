@@ -47,6 +47,8 @@ class ControlsEditor {
         float defCx, defCy, defW, defH;   // original layout values
         int key = -1;            // -1 = original key
         int shape = 0;           // 0 = round, 1 = rounded square
+        boolean hidden = false;  // deleted by the player (can be restored from More)
+        boolean special = false; // the menu button: can't be deleted or re-keyed
         View view;
 
         Control(int id, String name, boolean dpad, boolean extra) {
@@ -99,7 +101,11 @@ class ControlsEditor {
     private final ViewGroup overlayParent;
     private final File saveFile;
     private final File defaultFile;
-    private final boolean useStick;
+    private boolean useStick;
+    private final Runnable onMenu;
+    private View dpadView;
+    private View stickView;
+    private Control menuControl;
     private final boolean diagonal;
     private final GamepadButton.OnKeyDownListener keyDown;
     private final GamepadButton.OnKeyUpListener keyUp;
@@ -117,7 +123,9 @@ class ControlsEditor {
 
     ControlsEditor(Activity activity, ViewGroup overlayParent, File saveFile, File defaultFile,
                    boolean useStick, boolean diagonal, int opacity,
-                   GamepadButton.OnKeyDownListener keyDown, GamepadButton.OnKeyUpListener keyUp) {
+                   GamepadButton.OnKeyDownListener keyDown, GamepadButton.OnKeyUpListener keyUp,
+                   Runnable onMenu) {
+        this.onMenu = onMenu;
         this.activity = activity;
         this.overlayParent = overlayParent;
         this.saveFile = saveFile;
@@ -128,7 +136,7 @@ class ControlsEditor {
         this.keyDown = keyDown;
         this.keyUp = keyUp;
         this.density = activity.getResources().getDisplayMetrics().density;
-        controls.add(new Control(R.id.dpad, useStick ? "Stick" : "D-pad", true, false));
+        controls.add(new Control(R.id.dpad, "D-pad", true, false));
         controls.add(new Control(R.id.button_A, "A", false, false));
         controls.add(new Control(R.id.button_B, "B", false, false));
         controls.add(new Control(R.id.button_C, "C", false, false));
@@ -155,6 +163,10 @@ class ControlsEditor {
                     captureOriginalAndReparent();
                     load();
                     for (Control c : new ArrayList<>(controls)) apply(c);
+                    if (useStick) {
+                        useStick = false;
+                        setStick(true);
+                    }
                     ready = true;
                 } catch (Exception ignored) {
                     // Controls simply stay where the layout put them.
@@ -189,16 +201,31 @@ class ControlsEditor {
                 parent.removeView(v);
                 root.addView(v, new RelativeLayout.LayoutParams(w, h));
             }
-            if (c.dpad && useStick) {
-                v.setVisibility(View.GONE);
-                JoystickView stick = new JoystickView(activity, diagonal, keyDown, keyUp);
-                stick.setControlAlpha(opacity);
-                root.addView(stick, new RelativeLayout.LayoutParams(w, h));
-                c.view = stick;
-            } else {
-                c.view = v;
-            }
+            c.view = v;
+            if (c.dpad) dpadView = v;
         }
+        // The one menu button (screenshot, fast forward, cheats, quick save/load, edit layout).
+        menuControl = new Control(0, "Menu", false, false);
+        menuControl.special = true;
+        android.widget.ImageButton mb = new android.widget.ImageButton(activity);
+        mb.setImageResource(R.drawable.ic_menu);
+        mb.setBackgroundResource(R.drawable.gamepad_button_circle);
+        mb.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+        mb.setPadding(Math.round(8 * density), Math.round(8 * density), Math.round(8 * density), Math.round(8 * density));
+        mb.setAlpha(0.6f);
+        mb.setContentDescription("Menu");
+        mb.setOnClickListener(v -> onMenu.run());
+        menuControl.view = mb;
+        menuControl.defCx = 0.5f;
+        menuControl.defCy = 0.07f;
+        menuControl.defW = 40;
+        menuControl.defH = 40;
+        menuControl.cx = 0.5f;
+        menuControl.cy = 0.07f;
+        menuControl.w = 40;
+        menuControl.h = 40;
+        root.addView(mb, new RelativeLayout.LayoutParams(Math.round(40 * density), Math.round(40 * density)));
+        controls.add(menuControl);
         root.setClipChildren(false);
     }
 
@@ -212,6 +239,13 @@ class ControlsEditor {
         c.view.setLayoutParams(lp);
         c.view.setTranslationX(0f);
         c.view.setTranslationY(0f);
+        // Deleted controls disappear while playing and show faded while editing, so they can be restored.
+        c.view.setVisibility(c.hidden && !editing ? View.GONE : View.VISIBLE);
+        if (c.hidden && editing) {
+            c.view.setAlpha(0.25f);
+        } else if (c.view.getAlpha() == 0.25f) {
+            c.view.setAlpha(c.special ? 0.6f : (c.view instanceof JoystickView ? Math.min(opacity, 100) / 100f : 1f));
+        }
         if (!c.dpad && c.view instanceof GamepadButton) {
             GamepadButton b = (GamepadButton) c.view;
             b.setBackgroundResource(c.shape == 1 ? R.drawable.gamepad_button_square : R.drawable.gamepad_button_circle);
@@ -228,9 +262,33 @@ class ControlsEditor {
         c.w = c.defW;
         c.h = c.defH;
         c.shape = 0;
+        c.hidden = false;
     }
 
-    // ---- saving and loading ----
+    // ---- stick / D-pad switch ----
+
+    private void setStick(boolean on) {
+        if (on == useStick || dpadView == null) return;
+        Control dp = null;
+        for (Control c : controls) if (c.dpad) dp = c;
+        if (dp == null) return;
+        if (on) {
+            if (stickView == null) {
+                JoystickView stick = new JoystickView(activity, diagonal, keyDown, keyUp);
+                stick.setControlAlpha(opacity);
+                root.addView(stick, new RelativeLayout.LayoutParams(Math.round(dp.w * density), Math.round(dp.h * density)));
+                stickView = stick;
+            }
+            dpadView.setVisibility(View.GONE);
+            dp.view = stickView;
+        } else {
+            if (stickView != null) stickView.setVisibility(View.GONE);
+            dp.view = dpadView;
+        }
+        useStick = on;
+        apply(dp);
+        restoreTouch();
+    } and loading ----
 
     private String readFile(File f) throws java.io.IOException {
         StringBuilder sb = new StringBuilder();
@@ -260,6 +318,7 @@ class ControlsEditor {
                 JSONObject j = o.optJSONObject(c.name);
                 if (j != null) readControl(c, j);
             }
+            Boolean wantStick = o.has("stick") ? o.optBoolean("stick", false) : null;
             JSONObject extras = o.optJSONObject("extras");
             if (extras != null) {
                 java.util.Iterator<String> it = extras.keys();
@@ -269,6 +328,10 @@ class ControlsEditor {
                     Control c = newExtra(name, j.optInt("key", KeyEvent.KEYCODE_Z));
                     readControl(c, j);
                 }
+            }
+            if (wantStick != null) {
+                if (ready) setStick(wantStick);
+                else useStick = wantStick;
             }
         } catch (Exception ignored) {
         }
@@ -281,11 +344,12 @@ class ControlsEditor {
         c.h = (float) j.optDouble("h", c.h);
         c.key = j.optInt("key", -1);
         c.shape = j.optInt("shape", 0);
+        c.hidden = j.optBoolean("hidden", false);
     }
 
     private JSONObject writeControl(Control c) throws org.json.JSONException {
         return new JSONObject().put("cx", c.cx).put("cy", c.cy).put("w", c.w).put("h", c.h)
-                .put("key", c.key).put("shape", c.shape);
+                .put("key", c.key).put("shape", c.shape).put("hidden", c.hidden);
     }
 
     private void saveTo(File f) {
@@ -297,6 +361,7 @@ class ControlsEditor {
                 else o.put(c.name, writeControl(c));
             }
             o.put("extras", extras);
+            o.put("stick", useStick);
             File dir = f.getParentFile();
             if (dir != null) dir.mkdirs();
             try (java.io.FileWriter w = new java.io.FileWriter(f)) {
@@ -363,6 +428,7 @@ class ControlsEditor {
         for (Control c : controls) {
             if (c.view == null) continue;
             c.view.setOnTouchListener(on ? new DragListener(c) : null);
+            if (c.hidden) apply(c);
         }
         if (on) {
             grid = new GridOverlay(activity, 24f * density);
@@ -427,6 +493,8 @@ class ControlsEditor {
                 "Save this layout as the default for all games",
                 "Use the default layout here",
                 "Reset to the original layout",
+                useStick ? "Switch to the D-pad" : "Switch to the joystick",
+                "Restore deleted buttons",
         };
         new AlertDialog.Builder(activity)
                 .setTitle("Layout")
@@ -440,6 +508,17 @@ class ControlsEditor {
                             restoreTouch();
                             save();
                         }
+                    } else if (which == 3) {
+                        setStick(!useStick);
+                        save();
+                    } else if (which == 4) {
+                        for (Control c : controls) {
+                            if (c.hidden) {
+                                c.hidden = false;
+                                apply(c);
+                            }
+                        }
+                        save();
                     } else {
                         for (Control c : new ArrayList<>(controls)) {
                             if (c.extra) {
@@ -490,7 +569,7 @@ class ControlsEditor {
         float cell = cell();
         List<Control> placed = new ArrayList<>();
         for (Control c : controls) {
-            if (c.view == null) continue;
+            if (c.view == null || c.hidden) continue;
             snapControl(c);
             int guard = 0;
             boolean clash = true;
@@ -578,7 +657,7 @@ class ControlsEditor {
         final List<String> items = new ArrayList<>();
         items.add("Bigger");
         items.add("Smaller");
-        if (!c.dpad) {
+        if (!c.dpad && !c.special) {
             items.add("Wider");
             items.add("Narrower");
             items.add("Taller");
@@ -586,9 +665,12 @@ class ControlsEditor {
             items.add("Change key...");
             items.add("Round / rounded square");
         }
-        items.add(c.extra ? "Delete this button" : "Reset this control");
+        if (c.dpad) items.add(useStick ? "Switch to the D-pad" : "Switch to the joystick");
+        if (!c.special) items.add(c.hidden ? "Restore this control" : "Delete this control");
+        items.add(c.extra ? "Remove" : "Reset this control");
+        String title = c.dpad ? (useStick ? "Joystick" : "D-pad") : c.name + (c.special ? "" : " button");
         new AlertDialog.Builder(activity)
-                .setTitle(c.name + (c.dpad ? "" : " button"))
+                .setTitle(title)
                 .setItems(items.toArray(new String[0]), (d, which) -> {
                     String item = items.get(which);
                     switch (item) {
@@ -599,6 +681,11 @@ class ControlsEditor {
                         case "Taller": c.h = clamp(c.h * 1.2f); break;
                         case "Shorter": c.h = clamp(c.h / 1.2f); break;
                         case "Round / rounded square": c.shape = c.shape == 1 ? 0 : 1; break;
+                        case "Switch to the D-pad":
+                        case "Switch to the joystick":
+                            setStick(!useStick);
+                            save();
+                            return;
                         case "Change key...":
                             pickKey("Key for " + c.name, code -> {
                                 c.key = code;
@@ -606,7 +693,13 @@ class ControlsEditor {
                                 save();
                             });
                             return;
-                        case "Delete this button":
+                        case "Delete this control":
+                            c.hidden = true;
+                            break;
+                        case "Restore this control":
+                            c.hidden = false;
+                            break;
+                        case "Remove":
                             root.removeView(c.view);
                             controls.remove(c);
                             save();

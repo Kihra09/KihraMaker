@@ -64,8 +64,15 @@ object Rtp {
             }
             val root = findRoot(target)
             if (root == null) {
+                val installer = target.walkTopDown().any {
+                    it.isFile && (it.name.endsWith(".exe", true) || it.name.endsWith(".bin", true)) &&
+                        it.name.startsWith("setup", true)
+                }
                 target.deleteRecursively()
-                null to "That zip has no Graphics and Audio folders, so it isn't an RTP."
+                null to if (installer) {
+                    "That zip holds the Windows installer (Setup.exe / Setup.bin), which can't run on Android. " +
+                        "Extract it on a PC first (innoextract or 7-Zip), then import the extracted folder or zip with the Graphics and Audio folders."
+                } else "That zip has no Graphics and Audio folders, so it isn't an RTP."
             } else root to null
         } catch (e: Exception) {
             target.deleteRecursively()

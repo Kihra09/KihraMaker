@@ -25,12 +25,15 @@ object EngineLauncher {
     const val EXTRA_JOYSTICK = "joystick"
     const val EXTRA_PADMAP = "padMap"
     const val EXTRA_GESTURES = "gestures"
+    const val EXTRA_FF_SPEED = "ffSpeed"
+    const val EXTRA_RENDER_SCALE = "renderScale"
 
     private const val MARKER = "_generatedBy"
     private const val MARKER_VALUE = "KihraMaker"
 
     /** Returns an error message, or null when the game was started. */
     fun launch(context: Context, game: Game, rtpPath: String, wallpaperPath: String = ""): String? {
+        if (game.rgss.isWeb) return launchWeb(context, game)
         val dir = File(game.path)
         val rtps = mutableListOf<String>()
 
@@ -66,6 +69,8 @@ object EngineLauncher {
                 .putExtra(EXTRA_JOYSTICK, game.settings.joystick)
                 .putExtra(EXTRA_PADMAP, game.settings.padMap)
                 .putExtra(EXTRA_GESTURES, game.settings.gestures)
+                .putExtra(EXTRA_FF_SPEED, game.settings.ffSpeed.toFloat())
+                .putExtra(EXTRA_RENDER_SCALE, game.settings.renderScale)
                 // Native game screen size: XP is 640x480, VX and VX Ace are 544x416.
                 .putExtra(EXTRA_ASPECT, if (game.rgss == Rgss.XP) 640f / 480f else 544f / 416f)
                 .putExtra(EXTRA_FILL, game.settings.scaleMode == ScaleMode.STRETCH)
@@ -108,6 +113,21 @@ object EngineLauncher {
             file.writeText(json.toString(2))
         }.exceptionOrNull()
             ?.let { "Can't write the game's settings file (is the folder read-only?)." }
+    }
+
+    private fun launchWeb(context: Context, game: Game): String? {
+        val dir = File(game.path)
+        if (!dir.isDirectory) return "The game folder is missing: ${game.path}"
+        val intent = Intent(context, WebGameActivity::class.java)
+            .putExtra(EXTRA_PATH, game.path)
+            .putExtra(EXTRA_TITLE, game.title)
+            .putExtra(EXTRA_GAME_ID, game.id)
+            .putExtra(EXTRA_CONTROLS_OPACITY, game.settings.controlsOpacity)
+            .putExtra(EXTRA_DIAGONAL, game.settings.diagonalPad)
+            .putExtra(EXTRA_HAPTICS, game.settings.haptics)
+            .putExtra(EXTRA_SHOT_BUTTON, game.settings.screenshotButton)
+        return runCatching { context.startActivity(intent); null }
+            .getOrElse { "Couldn't start the game: ${it.message}" }
     }
 
     private fun fontFamily(id: String) = when (id) {

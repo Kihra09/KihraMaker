@@ -49,6 +49,16 @@
             android:preferMinimalPostProcessing="true"
             android:resizeableActivity="true"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation" />
+
+        <activity
+            android:name=".engine.WebGameActivity"
+            android:process=":game"
+            android:exported="false"
+            android:theme="@style/Theme.KihraMaker.Game"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:hardwareAccelerated="true"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation" />
     </application>
 
 </manifest>

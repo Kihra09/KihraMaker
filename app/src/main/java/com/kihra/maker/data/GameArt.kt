@@ -29,6 +29,21 @@ object GameArt {
         }.getOrNull()
     }
 
+    /** Larger title picture used as the game's cover in grid and card views (falls back to the icon). */
+    fun coverFile(context: Context, game: Game): File? {
+        val out = File(File(AppPaths.base(context), "covers").apply { mkdirs() }, Shots.key(game.id) + ".jpg")
+        if (out.isFile && out.length() > 0) return out
+        val bmp = runCatching { extract(game) }.getOrNull() ?: return iconFile(context, game)
+        return runCatching {
+            val ratio = minOf(720f / bmp.width, 720f / bmp.height, 1f)
+            val scaled = if (ratio < 1f) {
+                Bitmap.createScaledBitmap(bmp, (bmp.width * ratio).toInt().coerceAtLeast(1), (bmp.height * ratio).toInt().coerceAtLeast(1), true)
+            } else bmp
+            out.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+            out
+        }.getOrNull()
+    }
+
     /** Uses a picture chosen by the player as the game's icon. */
     fun setCustomIcon(context: Context, game: Game, uri: android.net.Uri): Boolean = runCatching {
         val out = File(File(AppPaths.base(context), "icons").apply { mkdirs() }, Shots.key(game.id) + ".png")

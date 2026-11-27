@@ -158,20 +158,20 @@ public class GamepadButton extends ImageView
 
     private int getTextSize()
     {
-        mPaint.setTextSize(mTextSize);
-
-        int mIntrinsicWidth = (int) Math.round(mPaint.measureText(mText, 0, mText.length()) + .5);
-        int mIntrinsicHeight = mPaint.getFontMetricsInt(null);
-
-        while (mIntrinsicHeight > this.getHeight() * 0.85 || mIntrinsicWidth > this.getWidth() * 0.85)
+        // Start from the button size every time (so it can grow back after resizing) and shrink
+        // until the label fits. Never go below a small floor so the label never disappears.
+        int size = Math.max(10, Math.round(Math.min(getWidth(), getHeight()) * 0.5f));
+        mPaint.setTextSize(size);
+        while (size > 6)
         {
-            mTextSize -= 2;
-            mPaint.setTextSize(mTextSize);
-            mIntrinsicWidth = (int) Math.round(mPaint.measureText(mText, 0, mText.length()) + .5);
-            mIntrinsicHeight = mPaint.getFontMetricsInt(null);
+            int w = (int) Math.round(mPaint.measureText(mText, 0, mText.length()) + .5);
+            int h = mPaint.getFontMetricsInt(null);
+            if (h <= getHeight() * 0.85 && w <= getWidth() * 0.85) break;
+            size -= 1;
+            mPaint.setTextSize(size);
         }
-
-        return mTextSize;
+        mTextSize = size;
+        return size;
     }
 
     public void setOnKeyDownListener(OnKeyDownListener onKeyDownListener)

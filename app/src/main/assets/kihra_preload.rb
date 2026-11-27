@@ -102,13 +102,78 @@ module KihraCtl
         $game_variables[a.to_i] = b.to_i
         $game_map.need_refresh = true if $game_map
       when "level" then level_up
+      when "qsave" then ack("qsave", quick_save)
+      when "qload" then ack("qload", quick_load)
+      when "dump" then dump_db
       end
+    end
+
+    QSLOT = 98 # file Save99: never shown in the game's own save screen (16 slots)
+
+    def ack(name, result)
+      File.open("kihra_ack.txt", "w") { |f| f.write("#{name}\t#{result}") }
+    rescue StandardError
+    end
+
+    # Quick save / load use the game's own save system (VX Ace only). This is NOT a true
+    # save state: it saves like the game's menu does, so it works where the game lets you save.
+    def quick_save
+      return "unsupported" unless KIHRA_RGSS == 3 && defined?(DataManager)
+      return "notmap" unless SceneManager.scene.is_a?(Scene_Map)
+      DataManager.save_game(QSLOT) ? "ok" : "failed"
+    rescue Exception
+      "failed"
+    end
+
+    def quick_load
+      return "unsupported" unless KIHRA_RGSS == 3 && defined?(DataManager)
+      return "nofile" unless File.exist?(DataManager.make_filename(QSLOT))
+      return "battle" if SceneManager.scene.is_a?(Scene_Battle)
+      return "failed" unless DataManager.load_game(QSLOT)
+      $game_system.on_after_load
+      SceneManager.goto(Scene_Map)
+      "ok"
+    rescue Exception
+      "failed"
+    end
+
+    # Writes the game's switch / variable / item names with their current values, so the app can
+    # show cheats made for this particular game.
+    def dump_db
+      out = []
+      clean = lambda { |t| t.to_s.gsub(/[\t\r\n]/, " ").strip }
+      if $data_system
+        sw = $data_system.switches
+        va = $data_system.variables
+        (1...sw.size).each do |i|
+          n = clean.call(sw[i])
+          next if n.empty?
+          out << "S\t#{i}\t#{n}\t#{$game_switches[i] ? 1 : 0}"
+        end
+        (1...va.size).each do |i|
+          n = clean.call(va[i])
+          next if n.empty?
+          out << "V\t#{i}\t#{n}\t#{$game_variables[i].to_i}"
+        end
+      end
+      if $data_items && $game_party
+        (1...$data_items.size).each do |i|
+          it = $data_items[i]
+          next unless it
+          n = clean.call(it.name)
+          next if n.empty?
+          cnt = KIHRA_RGSS == 1 ? $game_party.item_number(i) : $game_party.item_number(it)
+          out << "I\t#{i}\t#{n}\t#{cnt.to_i}"
+        end
+      end
+      File.open("kihra_db.txt", "w:UTF-8") { |f| f.write(out.first(4000).join("\n")) }
+    rescue Exception
     end
 
     def set_speed(x)
       @base ||= Graphics.frame_rate
       x = 1.0 if x < 1.0
-      Graphics.frame_rate = [(@base * x).round, 120].min
+      Graphics.frame_rate = [(@base * x).round, 960].min
       @speed = x
     end
 

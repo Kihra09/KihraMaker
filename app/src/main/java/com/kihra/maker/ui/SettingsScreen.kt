@@ -56,6 +56,7 @@ fun SettingsScreen(
     onCaptureLog: () -> Unit,
     onExportAll: () -> Unit,
     onRestoreAll: () -> Unit,
+    onOpenDefaults: () -> Unit = {},
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -70,6 +71,13 @@ fun SettingsScreen(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Section("Game defaults")
+            Text(
+                "Display, controls and advanced settings used for every newly added game.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onOpenDefaults, modifier = Modifier.fillMaxWidth()) { Text("Default game settings") }
+
             Section("Theme")
             Card(
                 shape = RoundedCornerShape(20.dp),

@@ -69,3 +69,13 @@ Game > Swipe and tap gestures: tap and 4 swipe directions each press a key.
 
 ## Quick check
 `quick-check.yml` compiles only Kotlin/Java (~5 min) on every push.
+
+## Supported games
+RPG Maker XP, VX, VX Ace (mkxp-z), MV and MZ (WebView, served from a private per-game address).
+2000/2003 need EasyRPG (not included yet).
+
+## In-game menu
+One movable menu button: screenshot, fast forward (speed chosen in the game's setup), cheats (game-specific list read from the game's database, long-press to pin), quick save/load (VX Ace), edit layout (move/resize/re-key/delete buttons, D-pad <-> joystick).
+
+## Engine patch
+scripts/build-engine.sh raises Graphics.frame_rate's cap from 120 to 960 so 4x-16x fast forward is possible.

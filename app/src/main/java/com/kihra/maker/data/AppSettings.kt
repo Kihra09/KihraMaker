@@ -23,6 +23,8 @@ data class AppSettings(
     val sort: String = "RECENT",
     /** "", "favorite", "playing" or "finished". */
     val filter: String = "",
+    /** Settings copied to every newly added game (display, controls, advanced). */
+    val defaults: GameSettings = GameSettings(),
 ) {
     companion object {
         private fun file(context: Context) = File(AppPaths.base(context), "settings.json")
@@ -41,6 +43,7 @@ data class AppSettings(
                 goalMinutes = o.optInt("goalMinutes", 0),
                 sort = o.optString("sort", "RECENT"),
                 filter = o.optString("filter", ""),
+                defaults = o.optJSONObject("defaults")?.let { GameSettings.fromJson(it) } ?: GameSettings(),
             )
         }.getOrDefault(AppSettings())
 
@@ -57,6 +60,7 @@ data class AppSettings(
                         .put("goalMinutes", s.goalMinutes)
                         .put("sort", s.sort)
                         .put("filter", s.filter)
+                        .put("defaults", s.defaults.toJson())
                         .toString(2)
                 )
             }

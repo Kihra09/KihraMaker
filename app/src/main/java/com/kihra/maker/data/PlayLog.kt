@@ -85,6 +85,15 @@ object PlayLog {
         return n
     }
 
+    /** Games whose streak is alive: played today or yesterday. Others show a grey flame until played again. */
+    fun activeStreak(segments: List<Segment>, zone: ZoneId = ZoneId.systemDefault()): Set<String> {
+        val today = LocalDate.now(zone)
+        return segments.groupBy { it.gameId }.filter { (_, segs) ->
+            val last = Instant.ofEpochMilli(segs.maxOf { it.end }).atZone(zone).toLocalDate()
+            !last.isBefore(today.minusDays(1))
+        }.keys
+    }
+
     fun format(ms: Long): String {
         val minutes = ms / 60_000
         return when {

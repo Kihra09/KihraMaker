@@ -59,6 +59,7 @@ fun AssistantScreen(
     segments: List<PlayLog.Segment>,
     shotCount: Int,
     goalMinutes: Int,
+    flags: Achievements.Flags = Achievements.Flags(),
 ) {
     var days by remember { mutableStateOf(7) }
     var selected by remember { mutableStateOf<Int?>(null) }
@@ -73,7 +74,7 @@ fun AssistantScreen(
     val todayMs = perDay.lastOrNull()?.second?.values?.sum() ?: 0L
     val allMs = totals.values.sum()
     val streak = remember(segments) { PlayLog.streak(segments) }
-    val milestones = remember(segments, shotCount) { Achievements.milestones(segments, shotCount) }
+    val milestones = remember(segments, shotCount, games, flags) { Achievements.milestones(segments, shotCount, games, flags) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
