@@ -288,7 +288,9 @@ class ControlsEditor {
         useStick = on;
         apply(dp);
         restoreTouch();
-    } and loading ----
+    }
+
+    // ---- saving and loading ----
 
     private String readFile(File f) throws java.io.IOException {
         StringBuilder sb = new StringBuilder();
