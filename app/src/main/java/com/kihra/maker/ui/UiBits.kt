@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,10 +49,16 @@ fun rememberImage(file: File?, maxPx: Int): ImageBitmap? {
 }
 
 /** Game icon (title picture) or a coloured letter tile when the game has none. */
+/** Bumped when an icon changes so every icon on screen reloads. */
+object IconVersion {
+    var value by androidx.compose.runtime.mutableIntStateOf(0)
+}
+
 @Composable
 fun GameIcon(game: Game?, size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val iconFile by produceState<File?>(null, game?.id) {
+    val version = IconVersion.value
+    val iconFile by produceState<File?>(null, game?.id, version) {
         value = if (game == null) null else withContext(Dispatchers.IO) { GameArt.iconFile(context, game) }
     }
     val bmp = rememberImage(iconFile, 192)

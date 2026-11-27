@@ -58,6 +58,7 @@ fun AssistantScreen(
     games: List<Game>,
     segments: List<PlayLog.Segment>,
     shotCount: Int,
+    goalMinutes: Int,
 ) {
     var days by remember { mutableStateOf(7) }
     var selected by remember { mutableStateOf<Int?>(null) }
@@ -93,6 +94,28 @@ fun AssistantScreen(
                     StatCard("Today", PlayLog.format(todayMs).replace("Not played yet", "0 min"), Modifier.weight(1f))
                     StatCard("All time", PlayLog.format(allMs).replace("Not played yet", "0 min"), Modifier.weight(1f))
                     StatCard("Day streak", "$streak", Modifier.weight(1f))
+                }
+            }
+
+            if (goalMinutes > 0) {
+                item {
+                    val goalMs = goalMinutes * 60_000L
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                if (todayMs >= goalMs) "Daily goal reached" else "Daily goal: ${PlayLog.format(todayMs).replace("Not played yet", "0 min")} of ${PlayLog.format(goalMs)}",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = { (todayMs.toFloat() / goalMs.toFloat()).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                 }
             }
 

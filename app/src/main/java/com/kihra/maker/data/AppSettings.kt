@@ -15,6 +15,14 @@ data class AppSettings(
     /** Wallpaper behind the game picture (fills the space beside the screen). */
     val wallpaperInGame: Boolean = true,
     val hintSeen: Boolean = false,
+    /** Light colours instead of dark. */
+    val light: Boolean = false,
+    /** Daily play goal in minutes, 0 = none. */
+    val goalMinutes: Int = 0,
+    /** RECENT, MOST_PLAYED, NAME or ADDED. */
+    val sort: String = "RECENT",
+    /** "", "favorite", "playing" or "finished". */
+    val filter: String = "",
 ) {
     companion object {
         private fun file(context: Context) = File(AppPaths.base(context), "settings.json")
@@ -29,6 +37,10 @@ data class AppSettings(
                 wallpaperInApp = o.optBoolean("wallpaperInApp", true),
                 wallpaperInGame = o.optBoolean("wallpaperInGame", true),
                 hintSeen = o.optBoolean("hintSeen", false),
+                light = o.optBoolean("light", false),
+                goalMinutes = o.optInt("goalMinutes", 0),
+                sort = o.optString("sort", "RECENT"),
+                filter = o.optString("filter", ""),
             )
         }.getOrDefault(AppSettings())
 
@@ -41,6 +53,10 @@ data class AppSettings(
                         .put("wallpaperInApp", s.wallpaperInApp)
                         .put("wallpaperInGame", s.wallpaperInGame)
                         .put("hintSeen", s.hintSeen)
+                        .put("light", s.light)
+                        .put("goalMinutes", s.goalMinutes)
+                        .put("sort", s.sort)
+                        .put("filter", s.filter)
                         .toString(2)
                 )
             }

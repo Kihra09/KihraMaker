@@ -2,6 +2,7 @@ package com.kihra.maker.ui
 
 import android.Manifest
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
@@ -13,13 +14,30 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.kihra.maker.data.AppBackup
 import com.kihra.maker.data.AppSettings
+import com.kihra.maker.data.Downloads
+import com.kihra.maker.data.GameArt
+import com.kihra.maker.data.SaveBackup
+import com.kihra.maker.data.SessionLog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.kihra.maker.data.PlayLog
 import com.kihra.maker.data.Rtp
 import com.kihra.maker.data.Wallpaper
 import com.kihra.maker.data.Shots
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -84,7 +102,10 @@ fun AppRoot(store: GameStore) {
     var segments by remember { mutableStateOf(emptyList<PlayLog.Segment>()) }
     var shots by remember { mutableStateOf(emptyList<Shots.Shot>()) }
     var reload by remember { mutableStateOf(0) }
-    var showGallery by remember { mutableStateOf(false) }
+    var logs by remember { mutableStateOf(emptyList<File>()) }
+    var viewingLog by remember { mutableStateOf<File?>(null) }
+    var backupsFor by remember { mutableStateOf<Game?>(null) }
+    var gameForPicker by remember { mutableStateOf<Game?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -97,6 +118,11 @@ fun AppRoot(store: GameStore) {
         val (seg, sh) = withContext(Dispatchers.IO) { PlayLog.read(context) to Shots.list(context) }
         segments = seg
         shots = sh
+        val ended = withContext(Dispatchers.IO) { SessionLog.finish(context, games) }
+        logs = withContext(Dispatchers.IO) { SessionLog.list(context) }
+        if (ended != null && ended.crashed) {
+            message = "${ended.title} closed unexpectedly. A log was saved in Settings > Logs."
+        }
     }
     val playtime = remember(segments) { PlayLog.totals(segments) }
     val pagerState = rememberPagerState(initialPage = 1) { 4 }
@@ -292,6 +318,87 @@ fun AppRoot(store: GameStore) {
         }
     }
 
+    val importSavesPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val g = gameForPicker
+        if (uri == null || g == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val n = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { SaveBackup.importZip(context, g, it) } ?: 0 }
+                    .getOrDefault(0)
+            }
+            message = if (n > 0) "Imported $n save files." else "No save files found in that zip."
+            reload++
+        }
+    }
+
+    val iconPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val g = gameForPicker
+        if (uri == null || g == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { GameArt.setCustomIcon(context, g, uri) }
+            if (ok) IconVersion.value++ else message = "Couldn't use that picture."
+        }
+    }
+
+    val restoreAllPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val n = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { AppBackup.restore(context, it) } ?: -1 }
+                    .getOrDefault(-1)
+            }
+            if (n < 0) {
+                message = "That isn't a KihraMaker backup."
+            } else {
+                games = store.load()
+                rtpPath = store.rtpPath
+                settings = AppSettings.load(context)
+                wallpaperVersion++
+                reload++
+                message = "Restored $n files."
+            }
+        }
+    }
+
+    fun exportSaves(game: Game) {
+        scope.launch {
+            val name = game.title.replace(Regex("[^A-Za-z0-9._-]"), "_").take(40) + "-saves.zip"
+            var count = 0
+            val where = withContext(Dispatchers.IO) {
+                Downloads.save(context, name, "application/zip") { out -> count = SaveBackup.exportZip(game, out) }
+            }
+            message = if (where == null) "Couldn't save the zip." else if (count == 0) "This game has no save files yet." else "Saved $count files to $where/$name"
+        }
+    }
+
+    fun exportEverything() {
+        scope.launch {
+            val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+            val where = withContext(Dispatchers.IO) {
+                Downloads.save(context, "KihraMaker-backup-$stamp.zip", "application/zip") { out -> AppBackup.export(context, out) }
+            }
+            message = if (where == null) "Couldn't save the backup." else "Backup saved to $where"
+        }
+    }
+
+    fun launchGame(g: Game) {
+        val started = g.copy(lastPlayed = System.currentTimeMillis())
+        val run: () -> Unit = {
+            update(games.map { if (it.id == g.id) started else it })
+            val wall = if (settings.wallpaperInGame) wallpaperFile?.absolutePath.orEmpty() else ""
+            val err = EngineLauncher.launch(context, started, rtpPath, wall)
+            if (err == null) SessionLog.markStart(context, started) else message = err
+        }
+        // Unpacked games live in the app's own storage; folders, zips and the RTP need file access.
+        if (g.extracted && rtpPath.isBlank()) run() else withStorage(action = run)
+    }
+
     LaunchedEffect(message) {
         message?.let {
             snackbar.showSnackbar(it)
@@ -301,9 +408,10 @@ fun AppRoot(store: GameStore) {
 
     val open = games.firstOrNull { it.id == openId }
     val wallpaperActive = settings.wallpaperInApp && wallpaperImage != null
+    val wide = LocalConfiguration.current.screenWidthDp >= 720
 
-    KihraTheme(settings.theme, wallpaperActive) {
-        Box(Modifier.fillMaxSize().background(if (wallpaperActive) Color.Black else themeBackground(settings.theme))) {
+    KihraTheme(settings.theme, wallpaperActive, settings.light) {
+        Box(Modifier.fillMaxSize().background(if (wallpaperActive) Color.Black else themeBackground(settings.theme, settings.light))) {
             if (wallpaperActive && wallpaperImage != null) {
                 Image(
                     bitmap = wallpaperImage,
@@ -311,29 +419,35 @@ fun AppRoot(store: GameStore) {
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (settings.light) 0.2f else 0.55f)))
             }
 
             if (open != null) {
+                BackHandler { openId = null }
                 GameDetailScreen(
                     game = open,
                     onBack = { openId = null },
                     onSettingsChange = { s ->
                         update(games.map { if (it.id == open.id) it.copy(settings = s) else it })
                     },
-                    onPlay = {
-                        val start: () -> Unit = {
-                            val played = open.copy(lastPlayed = System.currentTimeMillis())
-                            update(games.map { if (it.id == open.id) played else it })
-                            val wall = if (settings.wallpaperInGame) wallpaperFile?.absolutePath.orEmpty() else ""
-                            EngineLauncher.launch(context, played, rtpPath, wall)?.let { message = it }
-                        }
-                        // Unpacked games live in the app's own storage; folders, zips and the RTP need file access.
-                        if (open.extracted && rtpPath.isBlank()) start() else withStorage(action = start)
-                    },
+                    onPlay = { launchGame(open) },
                     onUnpack = { unpackGame(open) },
                     playedMs = playtime[open.id] ?: 0L,
                     rtpInstalled = Rtp.isValid(rtpPath),
+                    backupCount = remember(open.id, reload, backupsFor) { SaveBackup.list(context, open).size },
+                    actions = DetailActions(
+                        onFavorite = { update(games.map { if (it.id == open.id) it.copy(favorite = !it.favorite) else it }) },
+                        onStatus = { st -> update(games.map { if (it.id == open.id) it.copy(status = st) else it }) },
+                        onRename = { name -> update(games.map { if (it.id == open.id) it.copy(title = name) else it }) },
+                        onPickIcon = { gameForPicker = open; iconPicker.launch(arrayOf("image/*")) },
+                        onResetIcon = { GameArt.resetIcon(context, open); IconVersion.value++ },
+                        onOpenBackups = { backupsFor = open },
+                        onExportSaves = { exportSaves(open) },
+                        onImportSaves = {
+                            gameForPicker = open
+                            importSavesPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                        },
+                    ),
                     onRemove = {
                         val removed = open
                         update(games.filter { it.id != removed.id })
@@ -344,11 +458,17 @@ fun AppRoot(store: GameStore) {
                     },
                 )
             } else {
-                Column(Modifier.fillMaxSize()) {
-                    // Pages: Assistant, Library, Gallery, Settings. Swiping and the bottom bar both work.
-                    HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+                val tabs = listOf(
+                    "Assistant" to Icons.Filled.Insights,
+                    "Library" to Icons.Filled.SportsEsports,
+                    "Gallery" to Icons.Filled.PhotoLibrary,
+                    "Settings" to Icons.Filled.Settings,
+                )
+                val pager: @Composable (Modifier) -> Unit = { mod ->
+                    // Pages: Assistant, Library, Gallery, Settings. Swiping and the bar both work.
+                    HorizontalPager(state = pagerState, modifier = mod) { page ->
                         when (page) {
-                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size)
+                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size, goalMinutes = settings.goalMinutes)
                             1 -> LibraryScreen(
                                 games = games,
                                 onAddFolder = { withStorage { folderPicker.launch(null) } },
@@ -359,6 +479,11 @@ fun AppRoot(store: GameStore) {
                                 shotsByKey = shotsByKey,
                                 view = settings.view,
                                 onViewChange = { changeSettings(settings.copy(view = it)) },
+                                sort = settings.sort,
+                                onSortChange = { changeSettings(settings.copy(sort = it)) },
+                                filter = settings.filter,
+                                onFilterChange = { changeSettings(settings.copy(filter = it)) },
+                                onContinue = { launchGame(it) },
                                 showHint = !settings.hintSeen,
                                 onDismissHint = { changeSettings(settings.copy(hintSeen = true)) },
                                 onOpenGallery = { scope.launch { pagerState.animateScrollToPage(2) } },
@@ -391,18 +516,47 @@ fun AppRoot(store: GameStore) {
                                     store.rtpPath = ""
                                     scope.launch(Dispatchers.IO) { Rtp.home(context).deleteRecursively() }
                                 },
+                                logs = logs,
+                                onOpenLog = { viewingLog = it },
+                                onCaptureLog = {
+                                    scope.launch {
+                                        val f = withContext(Dispatchers.IO) { SessionLog.capture(context, "manual", "saved by hand") }
+                                        logs = withContext(Dispatchers.IO) { SessionLog.list(context) }
+                                        if (f != null) viewingLog = f else message = "Couldn't read the system log."
+                                    }
+                                },
+                                onExportAll = { exportEverything() },
+                                onRestoreAll = { restoreAllPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                             )
                         }
                     }
-                    NavigationBar {
-                        val tabs = listOf("Assistant" to Icons.Filled.Insights, "Library" to Icons.Filled.SportsEsports, "Gallery" to Icons.Filled.PhotoLibrary, "Settings" to Icons.Filled.Settings)
-                        tabs.forEachIndexed { i, (label, icon) ->
-                            NavigationBarItem(
-                                selected = pagerState.currentPage == i,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
-                                icon = { Icon(icon, contentDescription = label) },
-                                label = { Text(label) },
-                            )
+                }
+                if (wide) {
+                    Row(Modifier.fillMaxSize()) {
+                        NavigationRail {
+                            tabs.forEachIndexed { i, (label, icon) ->
+                                NavigationRailItem(
+                                    selected = pagerState.currentPage == i,
+                                    onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
+                                    icon = { Icon(icon, contentDescription = label) },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+                        pager(Modifier.weight(1f))
+                    }
+                } else {
+                    Column(Modifier.fillMaxSize()) {
+                        pager(Modifier.weight(1f))
+                        NavigationBar {
+                            tabs.forEachIndexed { i, (label, icon) ->
+                                NavigationBarItem(
+                                    selected = pagerState.currentPage == i,
+                                    onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
+                                    icon = { Icon(icon, contentDescription = label) },
+                                    label = { Text(label) },
+                                )
+                            }
                         }
                     }
                 }
@@ -411,20 +565,69 @@ fun AppRoot(store: GameStore) {
         }
     }
 
-    KihraTheme(settings.theme, false) {
-    importedMb?.let { mb ->
-        AlertDialog(
-            onDismissRequest = {},
-            confirmButton = {},
-            title = { Text("Unpacking zip") },
-            text = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.width(16.dp))
-                    Text("$mb MB done. Large games can take a few minutes.")
-                }
-            },
-        )
-    }
+    KihraTheme(settings.theme, false, settings.light) {
+        importedMb?.let { mb ->
+            AlertDialog(
+                onDismissRequest = {},
+                confirmButton = {},
+                title = { Text("Working") },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.width(16.dp))
+                        Text("$mb MB done. Large files can take a few minutes.")
+                    }
+                },
+            )
+        }
+
+        viewingLog?.let { f ->
+            val text = remember(f) { runCatching { f.readLines().takeLast(400).joinToString("\n") }.getOrDefault("(can't read this log)") }
+            AlertDialog(
+                onDismissRequest = { viewingLog = null },
+                title = { Text(f.nameWithoutExtension, maxLines = 1) },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text(text, fontFamily = KihraMono, fontSize = 10.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val where = Downloads.save(context, f.name, "text/plain") { out -> f.inputStream().use { it.copyTo(out) } }
+                        message = if (where != null) "Saved to $where/${f.name}" else "Couldn't save the log."
+                    }) { Text("Save to Downloads") }
+                },
+                dismissButton = { TextButton(onClick = { viewingLog = null }) { Text("Close") } },
+            )
+        }
+
+        backupsFor?.let { g ->
+            val list = SaveBackup.list(context, g)
+            val fmt = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
+            AlertDialog(
+                onDismissRequest = { backupsFor = null },
+                title = { Text("Save backups") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        if (list.isEmpty()) Text("No backups yet.")
+                        list.forEach { b ->
+                            TextButton(onClick = {
+                                val ok = SaveBackup.restore(context, g, b)
+                                message = if (ok) "Restored the backup from ${fmt.format(Date(b.time))}." else "Couldn't restore that backup."
+                                backupsFor = null
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text("${fmt.format(Date(b.time))}  ·  ${b.files} files")
+                            }
+                        }
+                        Text(
+                            "Restoring keeps a copy of your current saves first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                confirmButton = { TextButton(onClick = { backupsFor = null }) { Text("Close") } },
+            )
+        }
     }
 }

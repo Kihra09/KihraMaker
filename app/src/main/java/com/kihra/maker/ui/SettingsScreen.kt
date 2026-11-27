@@ -21,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -50,6 +51,11 @@ fun SettingsScreen(
     onImportRtpZip: () -> Unit,
     onPickRtpFolder: () -> Unit,
     onClearRtp: () -> Unit,
+    logs: List<java.io.File>,
+    onOpenLog: (java.io.File) -> Unit,
+    onCaptureLog: () -> Unit,
+    onExportAll: () -> Unit,
+    onRestoreAll: () -> Unit,
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -89,6 +95,25 @@ fun SettingsScreen(
                                 }
                             }
                             repeat(4 - rowThemes.size) { Spacer(Modifier.size(54.dp)) }
+                        }
+                    }
+                }
+            }
+
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ToggleRow("Light mode", settings.light) { onChange(settings.copy(light = it)) }
+                    Text("Daily play goal", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0 to "Off", 30 to "30 min", 60 to "1 h", 120 to "2 h").forEach { (m, label) ->
+                            FilterChip(
+                                selected = settings.goalMinutes == m,
+                                onClick = { onChange(settings.copy(goalMinutes = m)) },
+                                label = { Text(label) },
+                            )
                         }
                     }
                 }
@@ -141,6 +166,44 @@ fun SettingsScreen(
                         OutlinedButton(onClick = onPickRtpFolder) { Text("Choose folder") }
                     }
                     if (rtpPath.isNotBlank()) TextButton(onClick = onClearRtp) { Text("Remove RTP setting") }
+                }
+            }
+
+            Section("Logs")
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "A log is saved each time a game closes. If a game shows an error, open the newest log " +
+                            "and send it to get it fixed.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = onCaptureLog) { Text("Save a log now") }
+                    logs.take(6).forEach { f ->
+                        TextButton(onClick = { onOpenLog(f) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(f.nameWithoutExtension, maxLines = 1)
+                        }
+                    }
+                }
+            }
+
+            Section("Backup")
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "One zip with your library, settings, saves, control layouts, play time and screenshots. " +
+                            "Unpacked games are not included.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onExportAll) { Text("Export to Downloads") }
+                        OutlinedButton(onClick = onRestoreAll) { Text("Restore from zip") }
+                    }
                 }
             }
         }

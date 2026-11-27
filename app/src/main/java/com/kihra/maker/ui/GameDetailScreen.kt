@@ -14,7 +14,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.graphics.Color
+import com.kihra.maker.data.KeyNames
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -48,6 +57,17 @@ import com.kihra.maker.data.PlayLog
 import com.kihra.maker.data.ScaleMode
 import kotlin.math.roundToInt
 
+class DetailActions(
+    val onFavorite: () -> Unit,
+    val onStatus: (String) -> Unit,
+    val onRename: (String) -> Unit,
+    val onPickIcon: () -> Unit,
+    val onResetIcon: () -> Unit,
+    val onOpenBackups: () -> Unit,
+    val onExportSaves: () -> Unit,
+    val onImportSaves: () -> Unit,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GameDetailScreen(
@@ -59,9 +79,15 @@ fun GameDetailScreen(
     onRemove: () -> Unit,
     playedMs: Long,
     rtpInstalled: Boolean,
+    actions: DetailActions,
+    backupCount: Int,
 ) {
     BackHandler(onBack = onBack)
     var confirmRemove by remember { mutableStateOf(false) }
+    var editDialog by remember { mutableStateOf(false) }
+    var padDialog by remember { mutableStateOf(false) }
+    var gestureDialog by remember { mutableStateOf(false) }
+    var ruby by remember(game.id) { mutableStateOf(game.settings.customRuby) }
     val s = game.settings
 
     Scaffold(
@@ -74,8 +100,20 @@ fun GameDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = actions.onFavorite) {
+                        Icon(
+                            if (game.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (game.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { editDialog = true }) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit game")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                 ),
             )
         },
@@ -135,6 +173,16 @@ fun GameDetailScreen(
                 Text("Play", fontWeight = FontWeight.SemiBold)
             }
 
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("" to "No status", "playing" to "Playing", "finished" to "Finished", "hold" to "On hold").forEach { (key, label) ->
+                    FilterChip(
+                        selected = game.status == key,
+                        onClick = { actions.onStatus(key) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+
             SectionTitle("Display")
 
             Text("Scaling", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -192,7 +240,8 @@ fun GameDetailScreen(
                 onValueChange = { onSettingsChange(s.copy(controlsScale = (it / 5).roundToInt() * 5)) },
                 valueRange = 50f..150f,
             )
-            SwitchRow("8-way D-pad (diagonal movement)", s.diagonalPad) { onSettingsChange(s.copy(diagonalPad = it)) }
+            SwitchRow("Joystick instead of D-pad", s.joystick) { onSettingsChange(s.copy(joystick = it)) }
+            SwitchRow("8-way movement (diagonals)", s.diagonalPad) { onSettingsChange(s.copy(diagonalPad = it)) }
             SwitchRow("Vibrate when pressing buttons", s.haptics) { onSettingsChange(s.copy(haptics = it)) }
             SwitchRow("Screenshot button in game", s.screenshotButton) { onSettingsChange(s.copy(screenshotButton = it)) }
 
@@ -202,10 +251,165 @@ fun GameDetailScreen(
                 }
             }
 
+            SectionTitle("Saves")
+            Text(
+                "Backups are made automatically after you play (the last 5 are kept).",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = actions.onOpenBackups, enabled = backupCount > 0) { Text("Backups ($backupCount)") }
+                OutlinedButton(onClick = actions.onExportSaves) { Text("Export") }
+                OutlinedButton(onClick = actions.onImportSaves) { Text("Import") }
+            }
+
+            SectionTitle("Advanced")
+            OutlinedButton(onClick = { padDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Controller button mapping")
+            }
+            OutlinedButton(onClick = { gestureDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Swipe and tap gestures")
+            }
+            Text("Font inside the game", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("" to "Game's own", "fira" to "Fira Sans", "mplus" to "M PLUS Code").forEach { (id, label) ->
+                    FilterChip(selected = s.gameFont == id, onClick = { onSettingsChange(s.copy(gameFont = id)) }, label = { Text(label) })
+                }
+            }
+            Text(
+                "Used when the game's own font isn't available. Games that bundle their own font keep it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Custom Ruby fixes for this game (runs before the game starts). Leave empty if unsure.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = ruby,
+                onValueChange = { ruby = it },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (ruby != game.settings.customRuby) {
+                Button(onClick = { onSettingsChange(s.copy(customRuby = ruby)) }) { Text("Apply") }
+            }
+
             TextButton(onClick = { confirmRemove = true }) {
                 Text("Remove from library", color = MaterialTheme.colorScheme.error)
             }
         }
+    }
+
+    if (editDialog) {
+        var title by remember(game.id) { mutableStateOf(game.title) }
+        AlertDialog(
+            onDismissRequest = { editDialog = false },
+            title = { Text("Edit game") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Name") }, singleLine = true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(game, 48.dp)
+                        OutlinedButton(onClick = { editDialog = false; actions.onPickIcon() }) { Text("Choose icon") }
+                        TextButton(onClick = { editDialog = false; actions.onResetIcon() }) { Text("Reset") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (title.isNotBlank()) actions.onRename(title.trim())
+                    editDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editDialog = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (padDialog) {
+        val current = remember(game.settings.padMap) { KeyNames.parse(game.settings.padMap) }
+        AlertDialog(
+            onDismissRequest = { padDialog = false },
+            title = { Text("Controller buttons") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Choose which keyboard key each controller button presses. \"Default\" keeps the normal behavior.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    KeyNames.padButtons.forEach { (label, code) ->
+                        var open by remember { mutableStateOf(false) }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(label)
+                            Box {
+                                OutlinedButton(onClick = { open = true }) {
+                                    Text(current[code]?.let { c -> KeyNames.keys.firstOrNull { it.second == c }?.first } ?: "Default")
+                                }
+                                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                                    DropdownMenuItem(text = { Text("Default") }, onClick = {
+                                        open = false
+                                        onSettingsChange(s.copy(padMap = KeyNames.format(current - code)))
+                                    })
+                                    KeyNames.keys.forEach { (name, keyCode) ->
+                                        DropdownMenuItem(text = { Text(name) }, onClick = {
+                                            open = false
+                                            onSettingsChange(s.copy(padMap = KeyNames.format(current + (code to keyCode))))
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { padDialog = false }) { Text("Done") } },
+        )
+    }
+
+    if (gestureDialog) {
+        val current = remember(game.settings.gestures) {
+            game.settings.gestures.split(',').mapNotNull {
+                val p = it.split(':')
+                val k = p.getOrNull(1)?.toIntOrNull()
+                if (p.size == 2 && k != null) p[0] to k else null
+            }.toMap()
+        }
+        fun fmt(m: Map<String, Int>) = m.entries.joinToString(",") { "${it.key}:${it.value}" }
+        AlertDialog(
+            onDismissRequest = { gestureDialog = false },
+            title = { Text("Gestures") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Swipe or tap on the game screen (not on a button) to press a key. Off by default.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    listOf("tap" to "Tap", "up" to "Swipe up", "down" to "Swipe down", "left" to "Swipe left", "right" to "Swipe right").forEach { (id, label) ->
+                        var open by remember { mutableStateOf(false) }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(label)
+                            Box {
+                                OutlinedButton(onClick = { open = true }) {
+                                    Text(current[id]?.let { c -> KeyNames.keys.firstOrNull { it.second == c }?.first } ?: "Off")
+                                }
+                                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                                    DropdownMenuItem(text = { Text("Off") }, onClick = {
+                                        open = false
+                                        onSettingsChange(s.copy(gestures = fmt(current - id)))
+                                    })
+                                    KeyNames.keys.forEach { (name, keyCode) ->
+                                        DropdownMenuItem(text = { Text(name) }, onClick = {
+                                            open = false
+                                            onSettingsChange(s.copy(gestures = fmt(current + (id to keyCode))))
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { gestureDialog = false }) { Text("Done") } },
+        )
     }
 
     if (confirmRemove) {

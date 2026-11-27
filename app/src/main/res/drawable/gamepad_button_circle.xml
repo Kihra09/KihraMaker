@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- See-through button: soft white fill and a lighter ring, so the game stays visible behind it. -->
 <vector
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="128dp"
@@ -7,13 +8,12 @@
     android:viewportHeight="128"
 >
     <path
-        android:pathData="M64,64m-64,0a64,64 0,1 1,128 0a64,64 0,1 1,-128 0"
-        android:fillColor="#606060"
-        android:strokeWidth="0.289412"
+        android:pathData="M64,64m-58,0a58,58 0,1 1,116 0a58,58 0,1 1,-116 0"
+        android:fillColor="#2EFFFFFF"
     />
     <path
-        android:pathData="M64,64m-58,0a58,58 0,1 1,116 0a58,58 0,1 1,-116 0"
-        android:fillColor="#404040"
-        android:strokeWidth="0.328473"
+        android:pathData="M64,64m-62,0a62,62 0,1 1,124 0a62,62 0,1 1,-124 0M64,64m-56,0a56,56 0,1 0,112 0a56,56 0,1 0,-112 0"
+        android:fillColor="#B8FFFFFF"
+        android:fillType="evenOdd"
     />
 </vector>

@@ -26,7 +26,9 @@ data class GameSettings(
     val frameSkip: Boolean = true,
     val smoothScaling: Boolean = false,
     val showFps: Boolean = false,
-    val controlsOpacity: Float = 0.6f,
+    val controlsOpacity: Float = 0.85f,
+    /** Analog stick instead of the D-pad. */
+    val joystick: Boolean = false,
     /** On-screen controls size in percent (50..150). */
     val controlsScale: Int = 100,
     /** 8-way movement on the on-screen D-pad. */
@@ -35,6 +37,14 @@ data class GameSettings(
     val haptics: Boolean = true,
     /** Camera button over the game for taking screenshots. */
     val screenshotButton: Boolean = true,
+    /** Extra Ruby run before the game starts (advanced fixes for a single game). */
+    val customRuby: String = "",
+    /** Physical controller remap: "<controller key code>:<keyboard key code>,..." */
+    val padMap: String = "",
+    /** Swipe/tap gestures: "up:<key code>,down:...,left:...,right:...,tap:..." */
+    val gestures: String = "",
+    /** Font used inside the game: "" (game's own), "fira" or "mplus". */
+    val gameFont: String = "",
 )
 
 data class Game(
@@ -58,6 +68,9 @@ data class Game(
     val zipPath: String = "",
     /** The zip uses compression, so loading can be slower than from an unpacked game. */
     val zipCompressed: Boolean = false,
+    val favorite: Boolean = false,
+    /** "", "playing", "finished" or "hold". */
+    val status: String = "",
 ) {
     val fromZip: Boolean get() = zipPath.isNotEmpty()
 
@@ -73,6 +86,12 @@ data class Game(
         put("lastPlayed", lastPlayed)
         put("zipPath", zipPath)
         put("zipCompressed", zipCompressed)
+        put("favorite", favorite)
+        put("status", status)
+        put("customRuby", settings.customRuby)
+        put("padMap", settings.padMap)
+        put("gestures", settings.gestures)
+        put("gameFont", settings.gameFont)
         put("scaleMode", settings.scaleMode.name)
         put("fpsCap", settings.fpsCap)
         put("frameSkip", settings.frameSkip)
@@ -80,6 +99,7 @@ data class Game(
         put("showFps", settings.showFps)
         put("controlsOpacity", settings.controlsOpacity.toDouble())
         put("controlsScale", settings.controlsScale)
+        put("joystick", settings.joystick)
         put("diagonalPad", settings.diagonalPad)
         put("haptics", settings.haptics)
         put("screenshotButton", settings.screenshotButton)
@@ -105,6 +125,8 @@ data class Game(
                 lastPlayed = o.optLong("lastPlayed", 0L),
                 zipPath = o.optString("zipPath", ""),
                 zipCompressed = o.optBoolean("zipCompressed", false),
+                favorite = o.optBoolean("favorite", false),
+                status = o.optString("status", ""),
                 settings = GameSettings(
                     scaleMode = runCatching { ScaleMode.valueOf(o.getString("scaleMode")) }
                         .getOrDefault(ScaleMode.FIT),
@@ -112,11 +134,16 @@ data class Game(
                     frameSkip = o.optBoolean("frameSkip", true),
                     smoothScaling = o.optBoolean("smoothScaling", false),
                     showFps = o.optBoolean("showFps", false),
-                    controlsOpacity = o.optDouble("controlsOpacity", 0.6).toFloat(),
+                    controlsOpacity = o.optDouble("controlsOpacity", 0.85).toFloat(),
                     controlsScale = o.optInt("controlsScale", 100).coerceIn(50, 150),
+                    joystick = o.optBoolean("joystick", false),
                     diagonalPad = o.optBoolean("diagonalPad", false),
                     haptics = o.optBoolean("haptics", true),
                     screenshotButton = o.optBoolean("screenshotButton", true),
+                    customRuby = o.optString("customRuby", ""),
+                    padMap = o.optString("padMap", ""),
+                    gestures = o.optString("gestures", ""),
+                    gameFont = o.optString("gameFont", ""),
                 ),
             )
         }

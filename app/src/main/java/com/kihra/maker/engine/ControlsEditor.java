@@ -2,8 +2,12 @@ package com.kihra.maker.engine;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -19,67 +23,123 @@ import com.kihra.maker.R;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Lets the player move, resize, reshape and re-key the on-screen controls. Positions are kept per
- * game (files/controls/<game>.json). Every control is moved directly under the gamepad root so it
- * can be dragged anywhere on the screen.
+ * On-screen controls editor: move (with a snapping grid), resize, reshape, re-key, add and delete
+ * buttons, and swap the D-pad for an analog stick. Layouts are saved per game, with an optional
+ * default layout shared by all games.
+ *
+ * Every control is placed directly under the gamepad root by its centre (fractions of the screen),
+ * so it can sit anywhere.
  */
 class ControlsEditor {
     private static final class Control {
-        final int id;
-        final String name;
+        final int id;            // layout id for built-in controls, 0 for added buttons
+        String name;
         final boolean dpad;
-        float dx = 0f;      // offset as a fraction of the screen width
-        float dy = 0f;      // offset as a fraction of the screen height
-        float scale = 1f;
-        int key = -1;       // -1 = original key
-        int shape = 0;      // 0 = round, 1 = square
+        final boolean extra;
+        float cx;                // centre, fraction of root width
+        float cy;                // centre, fraction of root height
+        float w;                 // size in dp
+        float h;
+        float defCx, defCy, defW, defH;   // original layout values
+        int key = -1;            // -1 = original key
+        int shape = 0;           // 0 = round, 1 = rounded square
         View view;
 
-        Control(int id, String name, boolean dpad) {
+        Control(int id, String name, boolean dpad, boolean extra) {
             this.id = id;
             this.name = name;
             this.dpad = dpad;
+            this.extra = extra;
         }
     }
 
-    private static final String[] KEY_NAMES = {
-            "Z", "X", "C", "A", "S", "D", "Q", "W", "Enter", "Space", "Esc", "Shift", "Ctrl", "Alt",
-            "Tab", "F5", "F6", "F7", "F8", "F9"
-    };
-    private static final int[] KEY_CODES = {
-            android.view.KeyEvent.KEYCODE_Z, android.view.KeyEvent.KEYCODE_X, android.view.KeyEvent.KEYCODE_C,
-            android.view.KeyEvent.KEYCODE_A, android.view.KeyEvent.KEYCODE_S, android.view.KeyEvent.KEYCODE_D,
-            android.view.KeyEvent.KEYCODE_Q, android.view.KeyEvent.KEYCODE_W, android.view.KeyEvent.KEYCODE_ENTER,
-            android.view.KeyEvent.KEYCODE_SPACE, android.view.KeyEvent.KEYCODE_ESCAPE,
-            android.view.KeyEvent.KEYCODE_SHIFT_LEFT, android.view.KeyEvent.KEYCODE_CTRL_LEFT,
-            android.view.KeyEvent.KEYCODE_ALT_LEFT, android.view.KeyEvent.KEYCODE_TAB,
-            android.view.KeyEvent.KEYCODE_F5, android.view.KeyEvent.KEYCODE_F6, android.view.KeyEvent.KEYCODE_F7,
-            android.view.KeyEvent.KEYCODE_F8, android.view.KeyEvent.KEYCODE_F9
-    };
+    // ---- Every keyboard key a button can press ----
+    private static final List<String> KEY_NAMES = new ArrayList<>();
+    private static final List<Integer> KEY_CODES = new ArrayList<>();
+
+    private static void addKey(String name, int code) {
+        KEY_NAMES.add(name);
+        KEY_CODES.add(code);
+    }
+
+    static {
+        for (int i = 0; i < 26; i++) addKey(String.valueOf((char) ('A' + i)), KeyEvent.KEYCODE_A + i);
+        for (int i = 0; i < 10; i++) addKey(String.valueOf(i), KeyEvent.KEYCODE_0 + i);
+        addKey("Enter", KeyEvent.KEYCODE_ENTER);
+        addKey("Space", KeyEvent.KEYCODE_SPACE);
+        addKey("Esc", KeyEvent.KEYCODE_ESCAPE);
+        addKey("Tab", KeyEvent.KEYCODE_TAB);
+        addKey("Backspace", KeyEvent.KEYCODE_DEL);
+        addKey("Shift", KeyEvent.KEYCODE_SHIFT_LEFT);
+        addKey("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT);
+        addKey("Alt", KeyEvent.KEYCODE_ALT_LEFT);
+        addKey("Up", KeyEvent.KEYCODE_DPAD_UP);
+        addKey("Down", KeyEvent.KEYCODE_DPAD_DOWN);
+        addKey("Left", KeyEvent.KEYCODE_DPAD_LEFT);
+        addKey("Right", KeyEvent.KEYCODE_DPAD_RIGHT);
+        addKey("Insert", KeyEvent.KEYCODE_INSERT);
+        addKey("Home", KeyEvent.KEYCODE_MOVE_HOME);
+        addKey("End", KeyEvent.KEYCODE_MOVE_END);
+        addKey("Page Up", KeyEvent.KEYCODE_PAGE_UP);
+        addKey("Page Down", KeyEvent.KEYCODE_PAGE_DOWN);
+        for (int i = 0; i < 12; i++) addKey("F" + (i + 1), KeyEvent.KEYCODE_F1 + i);
+    }
+
+    private static String labelFor(int code) {
+        int i = KEY_CODES.indexOf(code);
+        if (i >= 0) return KEY_NAMES.get(i);
+        return KeyEvent.keyCodeToString(code).replace("KEYCODE_", "");
+    }
 
     private final Activity activity;
+    private final ViewGroup overlayParent;
     private final File saveFile;
-    private final Control[] controls = {
-            new Control(R.id.dpad, "D-pad", true),
-            new Control(R.id.button_A, "A", false), new Control(R.id.button_B, "B", false),
-            new Control(R.id.button_C, "C", false), new Control(R.id.button_X, "X", false),
-            new Control(R.id.button_Y, "Y", false), new Control(R.id.button_Z, "Z", false),
-            new Control(R.id.button_L, "L", false), new Control(R.id.button_R, "R", false),
-            new Control(R.id.button_CTRL, "Ctrl", false), new Control(R.id.button_ALT, "Alt", false),
-            new Control(R.id.button_SHIFT, "Shift", false),
-    };
+    private final File defaultFile;
+    private final boolean useStick;
+    private final boolean diagonal;
+    private final GamepadButton.OnKeyDownListener keyDown;
+    private final GamepadButton.OnKeyUpListener keyUp;
+    private final int opacity;
+    private final float density;
+
+    private final List<Control> controls = new ArrayList<>();
     private ViewGroup root;
     private boolean ready = false;
     private boolean editing = false;
+    private boolean snap = true;
     private View banner;
-    private ViewGroup overlayParent;
+    private GridOverlay grid;
+    private int extraCounter = 0;
 
-    ControlsEditor(Activity activity, ViewGroup overlayParent, File saveFile) {
+    ControlsEditor(Activity activity, ViewGroup overlayParent, File saveFile, File defaultFile,
+                   boolean useStick, boolean diagonal, int opacity,
+                   GamepadButton.OnKeyDownListener keyDown, GamepadButton.OnKeyUpListener keyUp) {
         this.activity = activity;
         this.overlayParent = overlayParent;
         this.saveFile = saveFile;
+        this.defaultFile = defaultFile;
+        this.useStick = useStick;
+        this.diagonal = diagonal;
+        this.opacity = opacity;
+        this.keyDown = keyDown;
+        this.keyUp = keyUp;
+        this.density = activity.getResources().getDisplayMetrics().density;
+        controls.add(new Control(R.id.dpad, useStick ? "Stick" : "D-pad", true, false));
+        controls.add(new Control(R.id.button_A, "A", false, false));
+        controls.add(new Control(R.id.button_B, "B", false, false));
+        controls.add(new Control(R.id.button_C, "C", false, false));
+        controls.add(new Control(R.id.button_X, "X", false, false));
+        controls.add(new Control(R.id.button_Y, "Y", false, false));
+        controls.add(new Control(R.id.button_Z, "Z", false, false));
+        controls.add(new Control(R.id.button_L, "L", false, false));
+        controls.add(new Control(R.id.button_R, "R", false, false));
+        controls.add(new Control(R.id.button_CTRL, "Ctrl", false, false));
+        controls.add(new Control(R.id.button_ALT, "Alt", false, false));
+        controls.add(new Control(R.id.button_SHIFT, "Shift", false, false));
     }
 
     /** Call once the gamepad layout is attached. Waits for the first layout pass. */
@@ -92,9 +152,9 @@ class ControlsEditor {
                 if (root.getWidth() <= 0 || root.getHeight() <= 0) return;
                 root.getViewTreeObserver().removeOnGlobalLayoutListener(this);
                 try {
-                    reparent();
+                    captureOriginalAndReparent();
                     load();
-                    for (Control c : controls) apply(c);
+                    for (Control c : new ArrayList<>(controls)) apply(c);
                     ready = true;
                 } catch (Exception ignored) {
                     // Controls simply stay where the layout put them.
@@ -103,35 +163,55 @@ class ControlsEditor {
         });
     }
 
-    private void reparent() {
-        if (!(root instanceof RelativeLayout)) return;
+    private void captureOriginalAndReparent() {
+        if (!(root instanceof RelativeLayout)) throw new IllegalStateException("unexpected root");
         int[] rootLoc = new int[2];
         root.getLocationInWindow(rootLoc);
+        float rw = root.getWidth();
+        float rh = root.getHeight();
         for (Control c : controls) {
             View v = activity.findViewById(c.id);
-            c.view = v;
             if (v == null) continue;
-            ViewGroup parent = (ViewGroup) v.getParent();
-            if (parent == root) continue;
             int[] loc = new int[2];
             v.getLocationInWindow(loc);
             int w = v.getWidth();
             int h = v.getHeight();
-            parent.removeView(v);
-            RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(w, h);
-            lp.leftMargin = loc[0] - rootLoc[0];
-            lp.topMargin = loc[1] - rootLoc[1];
-            root.addView(v, lp);
+            c.defCx = (loc[0] - rootLoc[0] + w / 2f) / rw;
+            c.defCy = (loc[1] - rootLoc[1] + h / 2f) / rh;
+            c.defW = w / density;
+            c.defH = h / density;
+            c.cx = c.defCx;
+            c.cy = c.defCy;
+            c.w = c.defW;
+            c.h = c.defH;
+            ViewGroup parent = (ViewGroup) v.getParent();
+            if (parent != root) {
+                parent.removeView(v);
+                root.addView(v, new RelativeLayout.LayoutParams(w, h));
+            }
+            if (c.dpad && useStick) {
+                v.setVisibility(View.GONE);
+                JoystickView stick = new JoystickView(activity, diagonal, keyDown, keyUp);
+                stick.setControlAlpha(opacity);
+                root.addView(stick, new RelativeLayout.LayoutParams(w, h));
+                c.view = stick;
+            } else {
+                c.view = v;
+            }
         }
         root.setClipChildren(false);
     }
 
     private void apply(Control c) {
         if (c.view == null) return;
-        c.view.setTranslationX(c.dx * root.getWidth());
-        c.view.setTranslationY(c.dy * root.getHeight());
-        c.view.setScaleX(c.scale);
-        c.view.setScaleY(c.scale);
+        int wPx = Math.round(c.w * density);
+        int hPx = Math.round(c.h * density);
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(wPx, hPx);
+        lp.leftMargin = Math.round(c.cx * root.getWidth() - wPx / 2f);
+        lp.topMargin = Math.round(c.cy * root.getHeight() - hPx / 2f);
+        c.view.setLayoutParams(lp);
+        c.view.setTranslationX(0f);
+        c.view.setTranslationY(0f);
         if (!c.dpad && c.view instanceof GamepadButton) {
             GamepadButton b = (GamepadButton) c.view;
             b.setBackgroundResource(c.shape == 1 ? R.drawable.gamepad_button_square : R.drawable.gamepad_button_circle);
@@ -142,50 +222,129 @@ class ControlsEditor {
         }
     }
 
-    private static String labelFor(int code) {
-        for (int i = 0; i < KEY_CODES.length; i++) if (KEY_CODES[i] == code) return KEY_NAMES[i];
-        return android.view.KeyEvent.keyCodeToString(code).replace("KEYCODE_", "");
+    private void resetToOriginal(Control c) {
+        c.cx = c.defCx;
+        c.cy = c.defCy;
+        c.w = c.defW;
+        c.h = c.defH;
+        c.shape = 0;
     }
 
-    // ---- saving ----
+    // ---- saving and loading ----
+
+    private String readFile(File f) throws java.io.IOException {
+        StringBuilder sb = new StringBuilder();
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f))) {
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+        }
+        return sb.toString();
+    }
 
     private void load() {
+        File f = saveFile.isFile() ? saveFile : (defaultFile.isFile() ? defaultFile : null);
+        if (f != null) loadFrom(f);
+    }
+
+    private void loadFrom(File f) {
         try {
-            if (!saveFile.isFile()) return;
-            StringBuilder sb = new StringBuilder();
-            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(saveFile))) {
-                String line;
-                while ((line = r.readLine()) != null) sb.append(line);
+            JSONObject o = new JSONObject(readFile(f));
+            // Remove added buttons from an earlier layout.
+            for (Control c : new ArrayList<>(controls)) {
+                if (c.extra) {
+                    if (c.view != null) root.removeView(c.view);
+                    controls.remove(c);
+                }
             }
-            JSONObject o = new JSONObject(sb.toString());
-            for (Control c : controls) {
+            for (Control c : new ArrayList<>(controls)) {
                 JSONObject j = o.optJSONObject(c.name);
-                if (j == null) continue;
-                c.dx = (float) j.optDouble("dx", 0);
-                c.dy = (float) j.optDouble("dy", 0);
-                c.scale = (float) j.optDouble("scale", 1);
-                c.key = j.optInt("key", -1);
-                c.shape = j.optInt("shape", 0);
+                if (j != null) readControl(c, j);
+            }
+            JSONObject extras = o.optJSONObject("extras");
+            if (extras != null) {
+                java.util.Iterator<String> it = extras.keys();
+                while (it.hasNext()) {
+                    String name = it.next();
+                    JSONObject j = extras.getJSONObject(name);
+                    Control c = newExtra(name, j.optInt("key", KeyEvent.KEYCODE_Z));
+                    readControl(c, j);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void readControl(Control c, JSONObject j) {
+        c.cx = (float) j.optDouble("cx", c.cx);
+        c.cy = (float) j.optDouble("cy", c.cy);
+        c.w = (float) j.optDouble("w", c.w);
+        c.h = (float) j.optDouble("h", c.h);
+        c.key = j.optInt("key", -1);
+        c.shape = j.optInt("shape", 0);
+    }
+
+    private JSONObject writeControl(Control c) throws org.json.JSONException {
+        return new JSONObject().put("cx", c.cx).put("cy", c.cy).put("w", c.w).put("h", c.h)
+                .put("key", c.key).put("shape", c.shape);
+    }
+
+    private void saveTo(File f) {
+        try {
+            JSONObject o = new JSONObject();
+            JSONObject extras = new JSONObject();
+            for (Control c : controls) {
+                if (c.extra) extras.put(c.name, writeControl(c));
+                else o.put(c.name, writeControl(c));
+            }
+            o.put("extras", extras);
+            File dir = f.getParentFile();
+            if (dir != null) dir.mkdirs();
+            try (java.io.FileWriter w = new java.io.FileWriter(f)) {
+                w.write(o.toString());
             }
         } catch (Exception ignored) {
         }
     }
 
     private void save() {
-        try {
-            JSONObject o = new JSONObject();
-            for (Control c : controls) {
-                o.put(c.name, new JSONObject()
-                        .put("dx", c.dx).put("dy", c.dy).put("scale", c.scale)
-                        .put("key", c.key).put("shape", c.shape));
+        saveTo(saveFile);
+    }
+
+    // ---- added buttons ----
+
+    private Control newExtra(String name, int key) {
+        Control c = new Control(0, name, false, true);
+        GamepadButton b = new GamepadButton(activity);
+        b.setBackgroundResource(R.drawable.gamepad_button_circle);
+        b.setKey(key);
+        b.setForegroundText(labelFor(key));
+        b.setOnKeyDownListener(keyDown);
+        b.setOnKeyUpListener(keyUp);
+        b.setImageAlpha(Math.round(Math.min(opacity, 100) * 2.55f));
+        c.key = key;
+        c.cx = 0.5f;
+        c.cy = 0.5f;
+        c.w = 52;
+        c.h = 52;
+        c.view = b;
+        root.addView(b, new RelativeLayout.LayoutParams(Math.round(52 * density), Math.round(52 * density)));
+        controls.add(c);
+        if (name.startsWith("extra")) {
+            try {
+                extraCounter = Math.max(extraCounter, Integer.parseInt(name.substring(5)));
+            } catch (NumberFormatException ignored) {
             }
-            File dir = saveFile.getParentFile();
-            if (dir != null) dir.mkdirs();
-            try (java.io.FileWriter w = new java.io.FileWriter(saveFile)) {
-                w.write(o.toString());
-            }
-        } catch (Exception ignored) {
         }
+        if (editing) c.view.setOnTouchListener(new DragListener(c));
+        return c;
+    }
+
+    private void addButton() {
+        pickKey("Key for the new button", code -> {
+            Control c = newExtra("extra" + (++extraCounter), code);
+            apply(c);
+            save();
+        });
     }
 
     // ---- editing ----
@@ -201,21 +360,30 @@ class ControlsEditor {
 
     private void setEditing(boolean on) {
         editing = on;
-        for (final Control c : controls) {
+        for (Control c : controls) {
             if (c.view == null) continue;
-            if (on) {
-                c.view.setOnTouchListener(new DragListener(c));
-            } else {
-                c.view.setOnTouchListener(null);
-            }
+            c.view.setOnTouchListener(on ? new DragListener(c) : null);
         }
         if (on) {
+            grid = new GridOverlay(activity, 24f * density);
+            root.addView(grid, 0, new RelativeLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             showBanner();
         } else {
             if (banner != null) overlayParent.removeView(banner);
             banner = null;
+            if (grid != null) root.removeView(grid);
+            grid = null;
             save();
         }
+    }
+
+    private Button smallButton(String text, View.OnClickListener l) {
+        Button b = new Button(activity);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setOnClickListener(l);
+        return b;
     }
 
     private void showBanner() {
@@ -223,50 +391,139 @@ class ControlsEditor {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setBackgroundColor(Color.argb(190, 0, 0, 0));
-        int pad = Math.round(10 * activity.getResources().getDisplayMetrics().density);
+        int pad = Math.round(8 * density);
         box.setPadding(pad, pad, pad, pad);
         TextView t = new TextView(activity);
-        t.setText("Edit controls: drag to move, tap a control for size, key and shape");
+        t.setText("Drag to move. Tap a control to resize, re-key or reshape it.");
         t.setTextColor(Color.WHITE);
         box.addView(t);
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        Button reset = new Button(activity);
-        reset.setText("Reset all");
-        reset.setOnClickListener(v -> {
-            for (Control c : controls) {
-                c.dx = 0; c.dy = 0; c.scale = 1f; c.shape = 0;
-                if (c.view != null) {
-                    c.view.setTranslationX(0); c.view.setTranslationY(0);
-                    c.view.setScaleX(1); c.view.setScaleY(1);
-                    if (!c.dpad && c.view instanceof GamepadButton) {
-                        ((GamepadButton) c.view).setBackgroundResource(R.drawable.gamepad_button_circle);
-                    }
-                }
-            }
-            save();
+        final Button snapBtn = smallButton("Snap: on", null);
+        snapBtn.setOnClickListener(v -> {
+            snap = !snap;
+            snapBtn.setText(snap ? "Snap: on" : "Snap: off");
+            if (grid != null) grid.setVisibility(snap ? View.VISIBLE : View.INVISIBLE);
         });
-        Button done = new Button(activity);
-        done.setText("Done");
-        done.setOnClickListener(v -> setEditing(false));
-        row.addView(reset);
-        row.addView(done);
+        row.addView(smallButton("+ Button", v -> addButton()));
+        row.addView(snapBtn);
+        row.addView(smallButton("Align all", v -> alignAll()));
+        row.addView(smallButton("More", v -> showMore()));
+        row.addView(smallButton("Done", v -> setEditing(false)));
         box.addView(row);
         RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.addRule(RelativeLayout.CENTER_IN_PARENT);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        lp.topMargin = Math.round(56 * density);
         box.setLayoutParams(lp);
         overlayParent.addView(box);
         banner = box;
+    }
+
+    private void showMore() {
+        final String[] items = {
+                "Save this layout as the default for all games",
+                "Use the default layout here",
+                "Reset to the original layout",
+        };
+        new AlertDialog.Builder(activity)
+                .setTitle("Layout")
+                .setItems(items, (d, which) -> {
+                    if (which == 0) {
+                        saveTo(defaultFile);
+                    } else if (which == 1) {
+                        if (defaultFile.isFile()) {
+                            loadFrom(defaultFile);
+                            for (Control c : new ArrayList<>(controls)) apply(c);
+                            restoreTouch();
+                            save();
+                        }
+                    } else {
+                        for (Control c : new ArrayList<>(controls)) {
+                            if (c.extra) {
+                                root.removeView(c.view);
+                                controls.remove(c);
+                            } else {
+                                resetToOriginal(c);
+                                c.key = -1;
+                                apply(c);
+                            }
+                        }
+                        save();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void restoreTouch() {
+        for (Control c : controls) {
+            if (c.view != null) c.view.setOnTouchListener(editing ? new DragListener(c) : null);
+        }
+    }
+
+    // ---- grid snapping ----
+
+    private float cell() {
+        return 24f * density;
+    }
+
+    private void snapControl(Control c) {
+        float cell = cell();
+        float px = Math.round(c.cx * root.getWidth() / cell) * cell;
+        float py = Math.round(c.cy * root.getHeight() / cell) * cell;
+        c.cx = px / root.getWidth();
+        c.cy = py / root.getHeight();
+    }
+
+    private boolean overlaps(Control a, Control b) {
+        float aw = a.w * density, ah = a.h * density, bw = b.w * density, bh = b.h * density;
+        float ax = a.cx * root.getWidth(), ay = a.cy * root.getHeight();
+        float bx = b.cx * root.getWidth(), by = b.cy * root.getHeight();
+        return Math.abs(ax - bx) < (aw + bw) / 2f && Math.abs(ay - by) < (ah + bh) / 2f;
+    }
+
+    /** Snaps every control to the grid and moves overlapping ones to the nearest free spot. */
+    private void alignAll() {
+        float cell = cell();
+        List<Control> placed = new ArrayList<>();
+        for (Control c : controls) {
+            if (c.view == null) continue;
+            snapControl(c);
+            int guard = 0;
+            boolean clash = true;
+            while (clash && guard++ < 200) {
+                clash = false;
+                for (Control p : placed) {
+                    if (overlaps(c, p)) {
+                        clash = true;
+                        float nx = c.cx * root.getWidth() + cell;
+                        float ny = c.cy * root.getHeight();
+                        if (nx + c.w * density / 2f > root.getWidth()) {
+                            nx = cell * 2f;
+                            ny += cell;
+                        }
+                        c.cx = nx / root.getWidth();
+                        c.cy = ny / root.getHeight();
+                        break;
+                    }
+                }
+            }
+            placed.add(c);
+            apply(c);
+        }
+        restoreTouch();
+        save();
     }
 
     private final class DragListener implements View.OnTouchListener {
         private final Control c;
         private float downX;
         private float downY;
-        private float startDx;
-        private float startDy;
+        private float startCx;
+        private float startCy;
         private boolean moved;
 
         DragListener(Control c) {
@@ -275,13 +532,13 @@ class ControlsEditor {
 
         @Override
         public boolean onTouch(View v, MotionEvent e) {
-            float slop = 8 * activity.getResources().getDisplayMetrics().density;
+            float slop = 8 * density;
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     downX = e.getRawX();
                     downY = e.getRawY();
-                    startDx = c.dx;
-                    startDy = c.dy;
+                    startCx = c.cx;
+                    startCy = c.cy;
                     moved = false;
                     return true;
                 case MotionEvent.ACTION_MOVE: {
@@ -289,16 +546,25 @@ class ControlsEditor {
                     float my = e.getRawY() - downY;
                     if (Math.abs(mx) > slop || Math.abs(my) > slop) moved = true;
                     if (moved) {
-                        c.dx = startDx + mx / root.getWidth();
-                        c.dy = startDy + my / root.getHeight();
-                        v.setTranslationX(c.dx * root.getWidth());
-                        v.setTranslationY(c.dy * root.getHeight());
+                        c.cx = Math.max(0f, Math.min(1f, startCx + mx / root.getWidth()));
+                        c.cy = Math.max(0f, Math.min(1f, startCy + my / root.getHeight()));
+                        if (snap) snapControl(c);
+                        // Move without re-creating the touch target while dragging.
+                        v.setTranslationX(c.cx * root.getWidth() - (((ViewGroup.MarginLayoutParams) v.getLayoutParams()).leftMargin + v.getWidth() / 2f));
+                        v.setTranslationY(c.cy * root.getHeight() - (((ViewGroup.MarginLayoutParams) v.getLayoutParams()).topMargin + v.getHeight() / 2f));
                     }
                     return true;
                 }
                 case MotionEvent.ACTION_UP:
-                    if (moved) save();
-                    else showControlDialog(c);
+                    if (moved) {
+                        apply(c);
+                        save();
+                    } else {
+                        showControlDialog(c);
+                    }
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    apply(c);
                     return true;
                 default:
                     return true;
@@ -306,42 +572,90 @@ class ControlsEditor {
         }
     }
 
+    // ---- dialogs ----
+
     private void showControlDialog(final Control c) {
-        final String[] items = c.dpad
-                ? new String[]{"Bigger", "Smaller", "Reset this control"}
-                : new String[]{"Bigger", "Smaller", "Change key...", "Round / square", "Reset this control"};
+        final List<String> items = new ArrayList<>();
+        items.add("Bigger");
+        items.add("Smaller");
+        if (!c.dpad) {
+            items.add("Wider");
+            items.add("Narrower");
+            items.add("Taller");
+            items.add("Shorter");
+            items.add("Change key...");
+            items.add("Round / rounded square");
+        }
+        items.add(c.extra ? "Delete this button" : "Reset this control");
         new AlertDialog.Builder(activity)
-                .setTitle(c.name + " button")
-                .setItems(items, (d, which) -> {
-                    String item = items[which];
-                    if (item.equals("Bigger")) {
-                        c.scale = Math.min(2.5f, c.scale * 1.15f);
-                    } else if (item.equals("Smaller")) {
-                        c.scale = Math.max(0.5f, c.scale / 1.15f);
-                    } else if (item.equals("Round / square")) {
-                        c.shape = c.shape == 1 ? 0 : 1;
-                    } else if (item.startsWith("Reset")) {
-                        c.dx = 0; c.dy = 0; c.scale = 1f; c.shape = 0;
-                    } else {
-                        pickKey(c);
-                        return;
+                .setTitle(c.name + (c.dpad ? "" : " button"))
+                .setItems(items.toArray(new String[0]), (d, which) -> {
+                    String item = items.get(which);
+                    switch (item) {
+                        case "Bigger": c.w = clamp(c.w * 1.15f); c.h = clamp(c.h * 1.15f); break;
+                        case "Smaller": c.w = clamp(c.w / 1.15f); c.h = clamp(c.h / 1.15f); break;
+                        case "Wider": c.w = clamp(c.w * 1.2f); break;
+                        case "Narrower": c.w = clamp(c.w / 1.2f); break;
+                        case "Taller": c.h = clamp(c.h * 1.2f); break;
+                        case "Shorter": c.h = clamp(c.h / 1.2f); break;
+                        case "Round / rounded square": c.shape = c.shape == 1 ? 0 : 1; break;
+                        case "Change key...":
+                            pickKey("Key for " + c.name, code -> {
+                                c.key = code;
+                                apply(c);
+                                save();
+                            });
+                            return;
+                        case "Delete this button":
+                            root.removeView(c.view);
+                            controls.remove(c);
+                            save();
+                            return;
+                        default:
+                            resetToOriginal(c);
+                            c.key = -1;
+                            break;
                     }
                     apply(c);
+                    restoreTouch();
                     save();
                 })
                 .setNegativeButton("Close", null)
                 .show();
     }
 
-    private void pickKey(final Control c) {
+    private float clamp(float dp) {
+        return Math.max(24f, Math.min(260f, dp));
+    }
+
+    private interface KeyPicked {
+        void picked(int code);
+    }
+
+    private void pickKey(String title, final KeyPicked cb) {
         new AlertDialog.Builder(activity)
-                .setTitle("Key for " + c.name)
-                .setItems(KEY_NAMES, (d, which) -> {
-                    c.key = KEY_CODES[which];
-                    apply(c);
-                    save();
-                })
+                .setTitle(title)
+                .setItems(KEY_NAMES.toArray(new String[0]), (d, which) -> cb.picked(KEY_CODES.get(which)))
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /** Faint grid shown while editing. */
+    private static final class GridOverlay extends View {
+        private final Paint paint = new Paint();
+        private final float cell;
+
+        GridOverlay(Context context, float cell) {
+            super(context);
+            this.cell = cell;
+            paint.setColor(Color.argb(40, 255, 255, 255));
+            paint.setStrokeWidth(1f);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            for (float x = 0; x < getWidth(); x += cell) canvas.drawLine(x, 0, x, getHeight(), paint);
+            for (float y = 0; y < getHeight(); y += cell) canvas.drawLine(0, y, getWidth(), y, paint);
+        }
     }
 }

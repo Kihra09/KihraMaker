@@ -18,8 +18,10 @@ import android.widget.ImageButton;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
 import android.content.res.ColorStateList;
+import com.hatkid.mkxpz.gamepad.GamepadButton;
 import com.kihra.maker.R;
 import com.kihra.maker.data.PlayLog;
+import com.kihra.maker.data.SessionLog;
 import com.kihra.maker.data.Shots;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -30,6 +32,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -82,6 +85,8 @@ public class GameActivity extends SDLActivity {
 
         mGameId = getIntent().getStringExtra(EngineLauncher.EXTRA_GAME_ID);
         if (mGameId == null) mGameId = "";
+        SessionLog.gameStarted(getApplicationContext());
+        parsePadMap(getIntent().getStringExtra(EngineLauncher.EXTRA_PADMAP));
         mHaptics = getIntent().getBooleanExtra(EngineLauncher.EXTRA_HAPTICS, true);
 
         int opacity = Math.round(getIntent().getFloatExtra(EngineLauncher.EXTRA_CONTROLS_OPACITY, 0.6f) * 100f);
@@ -90,19 +95,28 @@ public class GameActivity extends SDLActivity {
         cfg.scale = Math.max(50, Math.min(150, getIntent().getIntExtra(EngineLauncher.EXTRA_CONTROLS_SCALE, 100)));
         cfg.diagonalMovement = getIntent().getBooleanExtra(EngineLauncher.EXTRA_DIAGONAL, false);
 
+        mGestures = new GestureHandler(mLayout,
+                getIntent().getStringExtra(EngineLauncher.EXTRA_GESTURES),
+                getResources().getDisplayMetrics().density,
+                () -> { if (mHaptics) tick(); });
         mGamepadInvisible = isAndroidTV() || isChromebook();
         mGamepad.init(cfg, mGamepadInvisible);
-        mGamepad.setOnKeyDownListener(key -> {
+        final GamepadButton.OnKeyDownListener downL = key -> {
             if (mHaptics) tick();
             SDLActivity.onNativeKeyDown(key);
-        });
-        mGamepad.setOnKeyUpListener(SDLActivity::onNativeKeyUp);
+        };
+        final GamepadButton.OnKeyUpListener upL = SDLActivity::onNativeKeyUp;
+        mGamepad.setOnKeyDownListener(downL::onKeyDown);
+        mGamepad.setOnKeyUpListener(upL::onKeyUp);
         if (mLayout != null) {
             mGamepad.attachTo(this, mLayout);
             File base = getExternalFilesDir(null);
             if (base == null) base = getFilesDir();
             mControls = new ControlsEditor(this, mLayout,
-                    new File(base, "controls/" + Shots.INSTANCE.key(mGameId) + ".json"));
+                    new File(base, "controls/" + Shots.INSTANCE.key(mGameId) + ".json"),
+                    new File(base, "controls/default.json"),
+                    getIntent().getBooleanExtra(EngineLauncher.EXTRA_JOYSTICK, false),
+                    cfg.diagonalMovement, cfg.opacity, downL, upL);
             mControls.install();
         }
 
@@ -174,6 +188,20 @@ public class GameActivity extends SDLActivity {
 
     private ImageButton mFastButton;
     private ControlsEditor mControls;
+    private GestureHandler mGestures;
+    private final java.util.HashMap<Integer, Integer> mPadMap = new java.util.HashMap<>();
+
+    private void parsePadMap(String text) {
+        if (text == null || text.isEmpty()) return;
+        for (String pair : text.split(",")) {
+            String[] p = pair.split(":");
+            if (p.length != 2) continue;
+            try {
+                mPadMap.put(Integer.parseInt(p[0]), Integer.parseInt(p[1]));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+    }
     private final float[] SPEEDS = {1f, 1.5f, 2f};
     private int mSpeedIndex = 0;
 
@@ -361,6 +389,7 @@ public class GameActivity extends SDLActivity {
     @Override
     protected void onDestroy() {
         flushPlayTime();
+        SessionLog.gameEnded(getApplicationContext());
         super.onDestroy();
         // Ruby cannot be re-initialised inside a living process. The game runs in its own
         // process (see AndroidManifest), so this only ends the game, not the launcher.
@@ -381,6 +410,16 @@ public class GameActivity extends SDLActivity {
                 mGamepadInvisible = true;
             }
         }
+        // Remapped controller buttons: press the chosen keyboard key instead.
+        Integer mapped = mPadMap.get(code);
+        if (mapped != null && (evt.getSource() & (InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_JOYSTICK)) != 0) {
+            if (evt.getAction() == KeyEvent.ACTION_DOWN && evt.getRepeatCount() == 0) {
+                SDLActivity.onNativeKeyDown(mapped);
+            } else if (evt.getAction() == KeyEvent.ACTION_UP) {
+                SDLActivity.onNativeKeyUp(mapped);
+            }
+            return true;
+        }
         if (mGamepad.processGamepadEvent(evt)) return true;
         return super.dispatchKeyEvent(evt);
     }
@@ -391,6 +430,7 @@ public class GameActivity extends SDLActivity {
             mGamepad.showView();
             mGamepadInvisible = false;
         }
+        if (mGestures != null && !(mControls != null && mControls.isEditing())) mGestures.onTouch(evt);
         return super.dispatchTouchEvent(evt);
     }
 

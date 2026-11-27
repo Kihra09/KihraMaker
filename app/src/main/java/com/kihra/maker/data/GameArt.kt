@@ -29,6 +29,25 @@ object GameArt {
         }.getOrNull()
     }
 
+    /** Uses a picture chosen by the player as the game's icon. */
+    fun setCustomIcon(context: Context, game: Game, uri: android.net.Uri): Boolean = runCatching {
+        val out = File(File(AppPaths.base(context), "icons").apply { mkdirs() }, Shots.key(game.id) + ".png")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 512) sample *= 2
+        val bmp = context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: return false
+        out.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) }
+        true
+    }.getOrDefault(false)
+
+    /** Goes back to the game's own title picture. */
+    fun resetIcon(context: Context, game: Game) {
+        File(File(AppPaths.base(context), "icons"), Shots.key(game.id) + ".png").delete()
+    }
+
     private fun extract(game: Game): Bitmap? {
         val dirs = listOf("Graphics/Titles1", "Graphics/Titles")
         if (game.fromZip) {

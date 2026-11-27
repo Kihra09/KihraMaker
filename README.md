@@ -60,3 +60,12 @@ need one uninstall first.)
   unpacked instead, which needs no permission.
 - Direct zip play mounts the zip as a PhysFS archive through the engine's `RTP` list: no engine code was
   changed. Zips with Windows-style `\` paths, a top-level folder, or odd compression are unpacked instead.
+
+## Fonts
+UI: Fira Sans. Logs/code: M PLUS 1 Code (both SIL OFL, licenses in assets/fonts). Per-game option can use them inside games.
+
+## Gestures
+Game > Swipe and tap gestures: tap and 4 swipe directions each press a key.
+
+## Quick check
+`quick-check.yml` compiles only Kotlin/Java (~5 min) on every push.

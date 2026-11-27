@@ -28,6 +28,10 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -78,6 +82,11 @@ fun LibraryScreen(
     shotsByKey: Map<String, List<Shots.Shot>>,
     view: ViewMode,
     onViewChange: (ViewMode) -> Unit,
+    sort: String,
+    onSortChange: (String) -> Unit,
+    filter: String,
+    onFilterChange: (String) -> Unit,
+    onContinue: (Game) -> Unit,
     showHint: Boolean,
     onDismissHint: () -> Unit,
     onOpenGallery: () -> Unit,
@@ -85,11 +94,23 @@ fun LibraryScreen(
     var query by remember { mutableStateOf("") }
     var addMenu by remember { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
-    val shown = remember(games, query) {
-        games
-            .filter { it.title.contains(query, ignoreCase = true) }
-            .sortedByDescending { maxOf(it.lastPlayed, it.addedAt) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val shown = remember(games, query, sort, filter, playtime) {
+        val base = games.filter { it.title.contains(query, ignoreCase = true) }.filter {
+            when (filter) {
+                "favorite" -> it.favorite
+                "playing", "finished" -> it.status == filter
+                else -> true
+            }
+        }
+        when (sort) {
+            "MOST_PLAYED" -> base.sortedByDescending { playtime[it.id] ?: 0L }
+            "NAME" -> base.sortedBy { it.title.lowercase() }
+            "ADDED" -> base.sortedByDescending { it.addedAt }
+            else -> base.sortedByDescending { maxOf(it.lastPlayed, it.addedAt) }
+        }
     }
+    val lastPlayedGame = remember(games) { games.filter { it.lastPlayed > 0 && it.rgss.supported }.maxByOrNull { it.lastPlayed } }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -102,6 +123,19 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
+                    Box {
+                        IconButton(onClick = { sortMenu = true }) {
+                            Icon(Icons.Filled.Sort, contentDescription = "Sort")
+                        }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            listOf("RECENT" to "Recently played", "MOST_PLAYED" to "Most played", "NAME" to "Name", "ADDED" to "Date added").forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label + if (key == sort) "  ✓" else "") },
+                                    onClick = { sortMenu = false; onSortChange(key) },
+                                )
+                            }
+                        }
+                    }
                     Box {
                         IconButton(onClick = { viewMenu = true }) {
                             Icon(Icons.Filled.GridView, contentDescription = "View")
@@ -156,6 +190,34 @@ fun LibraryScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(listOf("" to "All", "favorite" to "Favorites", "playing" to "Playing", "finished" to "Finished")) { (key, label) ->
+                        FilterChip(selected = filter == key, onClick = { onFilterChange(key) }, label = { Text(label) })
+                    }
+                }
+                if (lastPlayedGame != null && query.isBlank() && filter.isBlank()) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            GameIcon(lastPlayedGame, 48.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Continue", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Text(lastPlayedGame.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                            Button(onClick = { onContinue(lastPlayedGame) }) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                                Text("Play")
+                            }
+                        }
+                    }
+                }
                 if (showHint) {
                     Card(
                         shape = RoundedCornerShape(16.dp),
