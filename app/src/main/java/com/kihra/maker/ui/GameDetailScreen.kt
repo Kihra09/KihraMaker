@@ -58,6 +58,7 @@ fun GameDetailScreen(
     onUnpack: () -> Unit,
     onRemove: () -> Unit,
     playedMs: Long,
+    rtpInstalled: Boolean,
 ) {
     BackHandler(onBack = onBack)
     var confirmRemove by remember { mutableStateOf(false) }
@@ -92,11 +93,11 @@ fun GameDetailScreen(
                         "so this game can't be started.",
                     isError = true,
                 )
-            } else if (game.rtp.isNotBlank()) {
+            } else if (game.rtp.isNotBlank() && !rtpInstalled) {
                 InfoCard(
-                    "This game uses the ${game.rtp} RTP. If it can't find its default " +
-                        "graphics or sounds, set the RTP folder with the gear icon in the library.",
-                    isError = false,
+                    "This game uses the ${game.rtp} RTP and it isn't installed. If the game can't find its default " +
+                        "graphics or sounds, import the RTP in Settings.",
+                    isError = true,
                 )
             }
 
@@ -147,7 +148,7 @@ fun GameDetailScreen(
                 }
             }
 
-            Text("Frame rate", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Frame rate (a cap turns fast forward off)", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(0 to "Game default", 30 to "30 FPS", 60 to "60 FPS").forEach { (fps, label) ->
                     FilterChip(

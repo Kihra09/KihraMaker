@@ -3,7 +3,13 @@ package com.kihra.maker.engine;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
+import android.app.AlertDialog;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.text.InputType;
+import android.widget.EditText;
+import android.widget.ImageView;
+import java.io.FileWriter;
 import android.graphics.Color;
 import android.os.HandlerThread;
 import android.view.PixelCopy;
@@ -93,6 +99,11 @@ public class GameActivity extends SDLActivity {
         mGamepad.setOnKeyUpListener(SDLActivity::onNativeKeyUp);
         if (mLayout != null) {
             mGamepad.attachTo(this, mLayout);
+            File base = getExternalFilesDir(null);
+            if (base == null) base = getFilesDir();
+            mControls = new ControlsEditor(this, mLayout,
+                    new File(base, "controls/" + Shots.INSTANCE.key(mGameId) + ".json"));
+            mControls.install();
         }
 
         tvFps = new TextView(this);
@@ -105,10 +116,45 @@ public class GameActivity extends SDLActivity {
         tvFps.setLayoutParams(params);
         if (mLayout != null) {
             mLayout.addView(tvFps);
-            if (getIntent().getBooleanExtra(EngineLauncher.EXTRA_SHOT_BUTTON, true)) {
-                addScreenshotButton();
-            }
+            addToolbar(getIntent().getBooleanExtra(EngineLauncher.EXTRA_SHOT_BUTTON, true));
+            setupWallpaper();
         }
+    }
+
+    // ---- Wallpaper: the game screen is shrunk to the game's aspect ratio and a picture is drawn
+    // behind it, so there are no black bars (the engine only draws inside its own surface). ----
+
+    private void setupWallpaper() {
+        String wallpaper = getIntent().getStringExtra(EngineLauncher.EXTRA_WALLPAPER);
+        final boolean fill = getIntent().getBooleanExtra(EngineLauncher.EXTRA_FILL, false);
+        final float aspect = getIntent().getFloatExtra(EngineLauncher.EXTRA_ASPECT, 4f / 3f);
+        if (wallpaper == null || wallpaper.isEmpty() || fill || mSurface == null) return;
+        Bitmap bg = BitmapFactory.decodeFile(wallpaper);
+        if (bg == null) return;
+        ImageView iv = new ImageView(this);
+        iv.setImageBitmap(bg);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        mLayout.addView(iv, 0, new RelativeLayout.LayoutParams(
+                LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        mLayout.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitSurface(r - l, b - t, aspect));
+    }
+
+    private void fitSurface(int width, int height, float aspect) {
+        if (width <= 0 || height <= 0 || mSurface == null) return;
+        int w;
+        int h;
+        if ((float) width / height > aspect) {
+            h = height;
+            w = Math.round(height * aspect);
+        } else {
+            w = width;
+            h = Math.round(width / aspect);
+        }
+        LayoutParams cur = mSurface.getLayoutParams();
+        if (cur != null && cur.width == w && cur.height == h) return;
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(w, h);
+        lp.addRule(RelativeLayout.CENTER_IN_PARENT);
+        mSurface.setLayoutParams(lp);
     }
 
     /** Short tap feedback for the on-screen buttons. */
@@ -126,21 +172,129 @@ public class GameActivity extends SDLActivity {
         }
     }
 
-    private void addScreenshotButton() {
+    private ImageButton mFastButton;
+    private ControlsEditor mControls;
+    private final float[] SPEEDS = {1f, 1.5f, 2f};
+    private int mSpeedIndex = 0;
+
+    private ImageButton toolButton(int icon, String description, View.OnClickListener click) {
         ImageButton b = new ImageButton(this);
-        b.setImageResource(R.drawable.ic_camera);
+        b.setImageResource(icon);
         b.setBackgroundColor(Color.TRANSPARENT);
         b.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         b.setAlpha(0.35f);
-        b.setContentDescription("Screenshot");
+        b.setContentDescription(description);
         int size = Math.round(44 * getResources().getDisplayMetrics().density);
-        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(size, size);
+        b.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    /** Small buttons at the top centre: screenshot, fast forward, cheats. */
+    private void addToolbar(boolean withScreenshot) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        if (withScreenshot) bar.addView(toolButton(R.drawable.ic_camera, "Screenshot", v -> takeScreenshot()));
+        mFastButton = toolButton(R.drawable.ic_fast_forward, "Fast forward", v -> cycleSpeed());
+        bar.addView(mFastButton);
+        bar.addView(toolButton(R.drawable.ic_cheats, "Cheats", v -> showCheats()));
+        bar.addView(toolButton(R.drawable.ic_gamepad, "Edit controls", v -> {
+            if (mControls != null) mControls.toggle();
+        }));
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(
+                LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
         lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
         lp.topMargin = Math.round(8 * getResources().getDisplayMetrics().density);
-        b.setLayoutParams(lp);
-        b.setOnClickListener(v -> takeScreenshot());
-        mLayout.addView(b);
+        bar.setLayoutParams(lp);
+        mLayout.addView(bar);
+    }
+
+    // ---- Commands for the game (fast forward, cheats): the preload script reads kihra_cmd.txt ----
+
+    private void sendCommand(String line) {
+        try (FileWriter w = new FileWriter(new File(GAME_PATH, "kihra_cmd.txt"), true)) {
+            w.write(line + "\n");
+        } catch (Exception e) {
+            Log.w(TAG, "Can't send command", e);
+            Toast.makeText(this, "Can't reach the game folder", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void cycleSpeed() {
+        mSpeedIndex = (mSpeedIndex + 1) % SPEEDS.length;
+        float x = SPEEDS[mSpeedIndex];
+        sendCommand("speed " + x);
+        if (mFastButton != null) mFastButton.setAlpha(x > 1f ? 1f : 0.35f);
+        Toast.makeText(this, x > 1f ? "Fast forward " + x + "x" : "Normal speed", Toast.LENGTH_SHORT).show();
+    }
+
+    private interface PromptDone {
+        void done(String[] values);
+    }
+
+    private void prompt(String title, String[] hints, PromptDone cb) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad / 2, pad, 0);
+        final EditText[] fields = new EditText[hints.length];
+        for (int i = 0; i < hints.length; i++) {
+            fields[i] = new EditText(this);
+            fields[i].setHint(hints[i]);
+            fields[i].setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_SIGNED);
+            box.addView(fields[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(box)
+                .setPositiveButton("OK", (d, w) -> {
+                    String[] out = new String[fields.length];
+                    for (int i = 0; i < fields.length; i++) {
+                        out[i] = fields[i].getText().toString().trim();
+                        if (out[i].isEmpty()) return;
+                    }
+                    cb.done(out);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showCheats() {
+        final String[] items = {
+                "Add gold...", "Heal the party", "Auto-heal (on/off)", "Walk through walls (on/off)",
+                "No random battles (on/off, VX/Ace)", "Add item...", "Set switch...", "Set variable...",
+                "Party +1 level (VX Ace)"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Cheats")
+                .setItems(items, (d, i) -> {
+                    switch (i) {
+                        case 0:
+                            prompt("Add gold", new String[]{"Amount"}, v -> sendCommand("gold " + v[0]));
+                            break;
+                        case 1: sendCommand("heal"); break;
+                        case 2: sendCommand("god"); break;
+                        case 3: sendCommand("through"); break;
+                        case 4: sendCommand("noenc"); break;
+                        case 5:
+                            prompt("Add item", new String[]{"Item number (database)", "How many"},
+                                    v -> sendCommand("item " + v[0] + " " + v[1]));
+                            break;
+                        case 6:
+                            prompt("Set switch", new String[]{"Switch number", "1 = ON, 0 = OFF"},
+                                    v -> sendCommand("switch " + v[0] + " " + v[1]));
+                            break;
+                        case 7:
+                            prompt("Set variable", new String[]{"Variable number", "New value"},
+                                    v -> sendCommand("var " + v[0] + " " + v[1]));
+                            break;
+                        case 8: sendCommand("level"); break;
+                        default: break;
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
     }
 
     /** Copies what the game is drawing (without the touch buttons) and saves it as a PNG. */
