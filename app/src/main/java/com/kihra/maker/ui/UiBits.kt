@@ -3,7 +3,6 @@ package com.kihra.maker.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -80,26 +79,5 @@ fun GameIcon(game: Game?, size: Dp, modifier: Modifier = Modifier) {
                 color = Color.White.copy(alpha = 0.9f),
             )
         }
-    }
-}
-
-/** Game icon with the 🔥 days-played badge at its top-left corner. */
-@Composable
-fun GameIconWithBadge(game: Game?, size: Dp, days: Int, modifier: Modifier = Modifier) {
-    Box(modifier) {
-        GameIcon(game, size)
-        if (days > 0) FlameBadge(days, Modifier.align(Alignment.TopStart))
-    }
-}
-
-@Composable
-fun FlameBadge(days: Int, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(topStart = 12.dp, bottomEnd = 10.dp, topEnd = 2.dp, bottomStart = 2.dp))
-            .background(Color(0xCC000000))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-    ) {
-        Text("\uD83D\uDD25$days", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
     }
 }

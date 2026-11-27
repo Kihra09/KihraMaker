@@ -65,12 +65,6 @@ object PlayLog {
         }
     }
 
-    /** Number of different days each game was played on (the 🔥 number on its icon). */
-    fun daysPlayed(segments: List<Segment>, zone: ZoneId = ZoneId.systemDefault()): Map<String, Int> =
-        segments.groupBy { it.gameId }.mapValues { (_, segs) ->
-            segs.map { Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate() }.toSet().size
-        }
-
     /** Number of consecutive days up to today (or yesterday) with any play time. */
     fun streak(segments: List<Segment>, zone: ZoneId = ZoneId.systemDefault()): Int {
         val played = HashSet<LocalDate>()

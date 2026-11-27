@@ -3,7 +3,6 @@ package com.kihra.maker.engine
 import android.content.Context
 import android.content.Intent
 import com.kihra.maker.data.Game
-import com.kihra.maker.data.Rgss
 import com.kihra.maker.data.ScaleMode
 import com.kihra.maker.data.ZipImporter
 import org.json.JSONArray
@@ -19,15 +18,12 @@ object EngineLauncher {
     const val EXTRA_DIAGONAL = "diagonalPad"
     const val EXTRA_HAPTICS = "haptics"
     const val EXTRA_SHOT_BUTTON = "screenshotButton"
-    const val EXTRA_WALLPAPER = "wallpaper"
-    const val EXTRA_ASPECT = "aspect"
-    const val EXTRA_FILL = "fill"
 
     private const val MARKER = "_generatedBy"
     private const val MARKER_VALUE = "KihraMaker"
 
     /** Returns an error message, or null when the game was started. */
-    fun launch(context: Context, game: Game, rtpPath: String, wallpaperPath: String = ""): String? {
+    fun launch(context: Context, game: Game, rtpPath: String): String? {
         val dir = File(game.path)
         val rtps = mutableListOf<String>()
 
@@ -46,7 +42,7 @@ object EngineLauncher {
         }
 
         if (rtpPath.isNotBlank()) rtps += rtpPath
-        writeConfig(context, dir, game, rtps, mustOwn = game.fromZip)?.let { return it }
+        writeConfig(dir, game, rtps, mustOwn = game.fromZip)?.let { return it }
 
         context.startActivity(
             Intent(context, GameActivity::class.java)
@@ -58,10 +54,6 @@ object EngineLauncher {
                 .putExtra(EXTRA_DIAGONAL, game.settings.diagonalPad)
                 .putExtra(EXTRA_HAPTICS, game.settings.haptics)
                 .putExtra(EXTRA_SHOT_BUTTON, game.settings.screenshotButton)
-                .putExtra(EXTRA_WALLPAPER, wallpaperPath)
-                // Native game screen size: XP is 640x480, VX and VX Ace are 544x416.
-                .putExtra(EXTRA_ASPECT, if (game.rgss == Rgss.XP) 640f / 480f else 544f / 416f)
-                .putExtra(EXTRA_FILL, game.settings.scaleMode == ScaleMode.STRETCH)
         )
         return null
     }
@@ -71,7 +63,7 @@ object EngineLauncher {
      * update) the file when it is missing or was made by us, so a config the game or the player
      * supplied is never overwritten. A zip game's save folder is ours, so it is always rewritten.
      */
-    private fun writeConfig(context: Context, dir: File, game: Game, rtps: List<String>, mustOwn: Boolean): String? {
+    private fun writeConfig(dir: File, game: Game, rtps: List<String>, mustOwn: Boolean): String? {
         val file = File(dir, "mkxp.json")
         if (file.exists() && !mustOwn) {
             val ours = runCatching { JSONObject(file.readText()).optString(MARKER) == MARKER_VALUE }
@@ -93,7 +85,7 @@ object EngineLauncher {
             put("preloadScript", JSONArray(listOf(SHIM_NAME)))
         }
         return runCatching {
-            File(dir, SHIM_NAME).writeText(shimFor(context, game))
+            File(dir, SHIM_NAME).writeText(SHIM)
             file.writeText(json.toString(2))
         }.exceptionOrNull()
             ?.let { "Can't write the game's settings file (is the folder read-only?)." }
@@ -101,14 +93,54 @@ object EngineLauncher {
 
     private const val SHIM_NAME = "kihra_preload.rb"
 
-    /** The preload script (see assets/kihra_preload.rb) with this game's RGSS version filled in. */
-    private fun shimFor(context: Context, game: Game): String {
-        val version = when (game.rgss) {
-            Rgss.XP -> 1
-            Rgss.VX -> 2
-            else -> 3
-        }
-        return context.assets.open("kihra_preload.rb").bufferedReader().use { it.readText() }
-            .replace("__RGSS__", version.toString())
-    }
+    /**
+     * Windows-only libraries (steam_api, custom .dll plugins) can't load on Android and would stop
+     * the game with a RuntimeError. Calls into a missing library are turned into harmless
+     * no-ops that return 0, so the game keeps going.
+     */
+    private val SHIM = """
+        # RPG Maker VX Ace games were written for Ruby 1.9; this engine runs Ruby 3.1. Bring back
+        # old methods games still use.
+        class Hash
+          unless method_defined?(:index)
+            def index(value)
+              key(value)
+            end
+          end
+        end
+        Fixnum = Integer unless defined?(Fixnum)
+        Bignum = Integer unless defined?(Bignum)
+        module KihraSafeFFI
+          SEEN = {}
+          def self.log(lib, func, args)
+            text = args.map { |a| a.is_a?(String) ? a.inspect : a.to_s }.join(", ")
+            return unless func =~ /achiev|unlock|trophy/i || text =~ /achiev|unlock|trophy/i
+            line = lib + "\t" + func + "\t" + text
+            return if SEEN[line]
+            SEEN[line] = true
+            begin
+              File.open("kihra_ach.log", "a") { |f| f.puts line }
+            rescue StandardError
+            end
+          end
+          def initialize(lib, func, *rest, &blk)
+            super
+          rescue RuntimeError, LoadError, NameError
+            @kihra_missing = true
+            @kihra_lib = lib.to_s
+            @kihra_func = func.to_s
+          end
+          def call(*args)
+            if @kihra_missing
+              KihraSafeFFI.log(@kihra_lib, @kihra_func, args)
+              return 0
+            end
+            super
+          end
+          def Call(*args)
+            call(*args)
+          end
+        end
+        MiniFFI.send(:prepend, KihraSafeFFI)
+    """.trimIndent() + "\n"
 }

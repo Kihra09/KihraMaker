@@ -79,7 +79,7 @@ fun AssistantScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Game assistant", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
     ) { padding ->

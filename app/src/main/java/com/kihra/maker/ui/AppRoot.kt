@@ -13,10 +13,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.kihra.maker.data.AppSettings
 import com.kihra.maker.data.PlayLog
-import com.kihra.maker.data.Rtp
-import com.kihra.maker.data.Wallpaper
 import com.kihra.maker.data.Shots
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,19 +22,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -99,18 +83,7 @@ fun AppRoot(store: GameStore) {
         shots = sh
     }
     val playtime = remember(segments) { PlayLog.totals(segments) }
-    val pagerState = rememberPagerState(initialPage = 1) { 4 }
-
-    var settings by remember { mutableStateOf(AppSettings.load(context)) }
-    fun changeSettings(new: AppSettings) {
-        settings = new
-        AppSettings.save(context, new)
-    }
-    var wallpaperVersion by remember { mutableStateOf(0) }
-    val wallpaperFile = remember(wallpaperVersion) { AppSettings.wallpaperFile(context).takeIf { it.isFile } }
-    val wallpaperImage = rememberImage(wallpaperFile, 1600)
-    val daysPlayed = remember(segments) { PlayLog.daysPlayed(segments) }
-    val shotsByKey = remember(shots) { shots.groupBy { it.gameKey } }
+    val pagerState = rememberPagerState(initialPage = 1) { 2 }
 
     fun update(new: List<Game>) {
         games = new
@@ -254,41 +227,12 @@ fun AppRoot(store: GameStore) {
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val path = PathUtils.treeUriToPath(uri)
-        val root = path?.let { Rtp.findRoot(File(it)) }
-        if (root == null) {
-            message = "No Graphics and Audio folders found there. Pick the RTP folder (for example RPGVXAce)."
+        if (path == null) {
+            message = "That location has no real folder path."
         } else {
-            rtpPath = root.absolutePath
-            store.rtpPath = root.absolutePath
+            rtpPath = path
+            store.rtpPath = path
             message = "RTP folder set."
-        }
-    }
-
-    val rtpZipPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            importedMb = 0
-            val (root, error) = withContext(Dispatchers.IO) { Rtp.importZip(context, uri) { mb -> importedMb = mb } }
-            importedMb = null
-            if (root != null) {
-                rtpPath = root.absolutePath
-                store.rtpPath = root.absolutePath
-                message = "RTP installed."
-            } else {
-                message = error ?: "Couldn't import the RTP."
-            }
-        }
-    }
-
-    val wallpaperPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) { Wallpaper.import(context, uri) }
-            if (ok) wallpaperVersion++ else message = "Couldn't use that picture."
         }
     }
 
@@ -300,118 +244,69 @@ fun AppRoot(store: GameStore) {
     }
 
     val open = games.firstOrNull { it.id == openId }
-    val wallpaperActive = settings.wallpaperInApp && wallpaperImage != null
 
-    KihraTheme(settings.theme, wallpaperActive) {
-        Box(Modifier.fillMaxSize().background(if (wallpaperActive) Color.Black else themeBackground(settings.theme))) {
-            if (wallpaperActive && wallpaperImage != null) {
-                Image(
-                    bitmap = wallpaperImage,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
-            }
-
-            if (open != null) {
-                GameDetailScreen(
-                    game = open,
-                    onBack = { openId = null },
-                    onSettingsChange = { s ->
-                        update(games.map { if (it.id == open.id) it.copy(settings = s) else it })
-                    },
-                    onPlay = {
-                        val start: () -> Unit = {
-                            val played = open.copy(lastPlayed = System.currentTimeMillis())
-                            update(games.map { if (it.id == open.id) played else it })
-                            val wall = if (settings.wallpaperInGame) wallpaperFile?.absolutePath.orEmpty() else ""
-                            EngineLauncher.launch(context, played, rtpPath, wall)?.let { message = it }
-                        }
-                        // Unpacked games live in the app's own storage; folders, zips and the RTP need file access.
-                        if (open.extracted && rtpPath.isBlank()) start() else withStorage(action = start)
-                    },
-                    onUnpack = { unpackGame(open) },
-                    playedMs = playtime[open.id] ?: 0L,
-                    rtpInstalled = Rtp.isValid(rtpPath),
-                    onRemove = {
-                        val removed = open
-                        update(games.filter { it.id != removed.id })
-                        openId = null
-                        if (removed.extracted && removed.extractRoot.isNotBlank()) {
-                            scope.launch(Dispatchers.IO) { File(removed.extractRoot).deleteRecursively() }
-                        }
-                    },
-                )
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    // Pages: Assistant, Library, Gallery, Settings. Swiping and the bottom bar both work.
-                    HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
-                        when (page) {
-                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size)
-                            1 -> LibraryScreen(
-                                games = games,
-                                onAddFolder = { withStorage { folderPicker.launch(null) } },
-                                onAddZip = { zipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
-                                onOpen = { openId = it.id },
-                                playtime = playtime,
-                                daysPlayed = daysPlayed,
-                                shotsByKey = shotsByKey,
-                                view = settings.view,
-                                onViewChange = { changeSettings(settings.copy(view = it)) },
-                                showHint = !settings.hintSeen,
-                                onDismissHint = { changeSettings(settings.copy(hintSeen = true)) },
-                                onOpenGallery = { scope.launch { pagerState.animateScrollToPage(2) } },
-                            )
-                            2 -> GalleryScreen(
-                                shots = shots,
-                                games = games,
-                                onBack = null,
-                                onDelete = { shot ->
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) { shot.file.delete() }
-                                        reload++
-                                    }
-                                },
-                            )
-                            else -> SettingsScreen(
-                                settings = settings,
-                                onChange = { changeSettings(it) },
-                                hasWallpaper = wallpaperFile != null,
-                                onPickWallpaper = { wallpaperPicker.launch(arrayOf("image/*")) },
-                                onClearWallpaper = {
-                                    AppSettings.wallpaperFile(context).delete()
-                                    wallpaperVersion++
-                                },
-                                rtpPath = rtpPath,
-                                onImportRtpZip = { rtpZipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
-                                onPickRtpFolder = { withStorage { rtpPicker.launch(null) } },
-                                onClearRtp = {
-                                    rtpPath = ""
-                                    store.rtpPath = ""
-                                    scope.launch(Dispatchers.IO) { Rtp.home(context).deleteRecursively() }
-                                },
-                            )
-                        }
+    Box {
+        if (showGallery) {
+            GalleryScreen(
+                shots = shots,
+                games = games,
+                onBack = { showGallery = false },
+                onDelete = { shot ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { shot.file.delete() }
+                        reload++
                     }
-                    NavigationBar {
-                        val tabs = listOf("Assistant" to Icons.Filled.Insights, "Library" to Icons.Filled.SportsEsports, "Gallery" to Icons.Filled.PhotoLibrary, "Settings" to Icons.Filled.Settings)
-                        tabs.forEachIndexed { i, (label, icon) ->
-                            NavigationBarItem(
-                                selected = pagerState.currentPage == i,
-                                onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
-                                icon = { Icon(icon, contentDescription = label) },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
+                },
+            )
+        } else if (open == null) {
+            // Swipe right on the library to reach the Game assistant (page 0).
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                if (page == 0) {
+                    AssistantScreen(games = games, segments = segments, shotCount = shots.size)
+                } else {
+                    LibraryScreen(
+                        games = games,
+                        rtpPath = rtpPath,
+                        onAddFolder = { withStorage { folderPicker.launch(null) } },
+                        onAddZip = { zipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                        onSetRtp = { withStorage { rtpPicker.launch(null) } },
+                        onOpen = { openId = it.id },
+                        playtime = playtime,
+                        onOpenGallery = { showGallery = true },
+                    )
                 }
             }
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+        } else {
+            GameDetailScreen(
+                game = open,
+                onBack = { openId = null },
+                onSettingsChange = { s ->
+                    update(games.map { if (it.id == open.id) it.copy(settings = s) else it })
+                },
+                onPlay = {
+                    val start: () -> Unit = {
+                        val played = open.copy(lastPlayed = System.currentTimeMillis())
+                        update(games.map { if (it.id == open.id) played else it })
+                        EngineLauncher.launch(context, played, rtpPath)?.let { message = it }
+                    }
+                    // Unpacked games live in the app's own storage; folders, zips and the RTP need file access.
+                    if (open.extracted && rtpPath.isBlank()) start() else withStorage(action = start)
+                },
+                onUnpack = { unpackGame(open) },
+                playedMs = playtime[open.id] ?: 0L,
+                onRemove = {
+                    val removed = open
+                    update(games.filter { it.id != removed.id })
+                    openId = null
+                    if (removed.extracted && removed.extractRoot.isNotBlank()) {
+                        scope.launch(Dispatchers.IO) { File(removed.extractRoot).deleteRecursively() }
+                    }
+                },
+            )
         }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 
-    KihraTheme(settings.theme, false) {
     importedMb?.let { mb ->
         AlertDialog(
             onDismissRequest = {},
@@ -425,6 +320,5 @@ fun AppRoot(store: GameStore) {
                 }
             },
         )
-    }
     }
 }
