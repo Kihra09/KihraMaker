@@ -5,7 +5,6 @@ import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -62,10 +61,9 @@ import java.io.File
 fun GalleryScreen(
     shots: List<Shots.Shot>,
     games: List<Game>,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     onDelete: (Shots.Shot) -> Unit,
 ) {
-    BackHandler(onBack = onBack)
     val context = LocalContext.current
     var filter by remember { mutableStateOf<String?>(null) }
     var viewing by remember { mutableStateOf<Shots.Shot?>(null) }
@@ -79,9 +77,11 @@ fun GalleryScreen(
             TopAppBar(
                 title = { Text("Gallery") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
     ) { padding ->

@@ -16,6 +16,10 @@ GPL v2+ (see COPYING).
   (daily play-time chart per game, top games, achievements)
 - Gallery (top-left icon) with every in-game screenshot (camera button over the game); export to Pictures
 - Controls: button size and opacity, 8-way D-pad, vibration feedback, physical controller support
+- Themes (Strawberry, Lime, ...), list / grid / card views, wallpaper in the app and behind the game screen
+- In-game toolbar: screenshot, fast forward (up to 2x), cheats (gold, items, switches, variables, heal, walk through walls),
+  and a controls editor (move, resize, reshape and re-key the on-screen buttons, saved per game)
+- RTP import (zip or folder) in Settings
 - Windows-only DLL calls (steam_api...) are skipped so games keep running; achievement-like calls are logged
 
 ## Where data lives

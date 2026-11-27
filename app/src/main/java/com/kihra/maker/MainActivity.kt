@@ -6,7 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.kihra.maker.data.GameStore
 import com.kihra.maker.ui.AppRoot
-import com.kihra.maker.ui.KihraTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -14,9 +13,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val store = GameStore(applicationContext)
         setContent {
-            KihraTheme {
-                AppRoot(store)
-            }
+            AppRoot(store)
         }
     }
 }
