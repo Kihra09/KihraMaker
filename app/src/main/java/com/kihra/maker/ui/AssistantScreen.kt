@@ -163,7 +163,107 @@ fun AssistantScreen(
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Goals (tap to change)", fontWeight = FontWeight.SemiBold)
                         val today = PlayLog.format(todayMs).replace("Not played yet", "0 min")
-                        item {
+                        if (goalMinutes > 0) {
+                            Text("Today: $today of ${PlayLog.format(goalMinutes * 60_000L)}", style = MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(progress = { (todayMs.toFloat() / (goalMinutes * 60_000f)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        } else Text("Today: $today - no daily goal", style = MaterialTheme.typography.bodySmall)
+                        if (weeklyGoalHours > 0) {
+                            Text("This week: ${PlayLog.format(weekMs).replace("Not played yet", "0 min")} of ${weeklyGoalHours} h", style = MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(progress = { (weekMs.toFloat() / (weeklyGoalHours * 3_600_000f)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        } else Text("This week: no weekly goal", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            item {
+                StreakCard(segments, streakState, games) { n -> streakState = n; Streaks.save(context, n) }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = query, onValueChange = { query = it },
+                        singleLine = true, label = { Text("Search games") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("playing" to "Playing", "finished" to "Finished", "hold" to "Backlog").forEach { (k, label) ->
+                            FilterChip(
+                                selected = statusFilter == k,
+                                onClick = { statusFilter = if (statusFilter == k) null else k },
+                                label = { Text("$label ${games.count { it.status == k }}") },
+                            )
+                        }
+                    }
+                }
+            }
+            val streakGames = visible.map { it to Streaks.streakAt(Streaks.playedDays(segments, streakState, it.id), java.time.LocalDate.now()) }
+                .filter { it.second > 0 }.sortedByDescending { it.second }
+            if (streakGames.isNotEmpty()) {
+                item { Text("Streaks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+                items(streakGames.size) { i ->
+                    val (g, n) = streakGames[i]
+                    Row(Modifier.fillMaxWidth().clickable { onOpenGame(g.id) }, verticalAlignment = Alignment.CenterVertically) {
+                        GameIconWithBadge(g, 40.dp, n, active = g.id in activeIds)
+                        Spacer(Modifier.width(12.dp))
+                        Text(g.title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("$n days", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            val recent = visible.filter { it.lastPlayed > 0 }.sortedByDescending { it.lastPlayed }.take(5)
+            if (recent.isNotEmpty()) {
+                item { Text("Recently played", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+                items(recent.size) { i ->
+                    val g = recent[i]
+                    Row(Modifier.fillMaxWidth().clickable { onOpenGame(g.id) }, verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(g, 40.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(g.title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            val fav = visible.maxByOrNull { totals[it.id] ?: 0L }?.takeIf { (totals[it.id] ?: 0L) > 0 }
+            if (fav != null) {
+                item {
+                    Text("Favourite game", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Row(Modifier.fillMaxWidth().clickable { onOpenGame(fav.id) }, verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(fav, 48.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(fav.title, fontWeight = FontWeight.SemiBold)
+                            Text(PlayLog.format(totals[fav.id] ?: 0L), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            item {
+                Text("Last 12 weeks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                val max = maxOf(weekly.maxOrNull() ?: 0L, 60 * 60_000L)
+                val bar = MaterialTheme.colorScheme.primary
+                val track = MaterialTheme.colorScheme.surfaceVariant
+                androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(90.dp)) {
+                    val w = size.width / weekly.size
+                    weekly.forEachIndexed { i, ms ->
+                        drawRoundRect(track, Offset(i * w + 2f, 0f), Size(w - 4f, size.height), androidx.compose.ui.geometry.CornerRadius(6f))
+                        val h = size.height * ms / max
+                        if (h > 0f) drawRoundRect(bar, Offset(i * w + 2f, size.height - h), Size(w - 4f, h), androidx.compose.ui.geometry.CornerRadius(6f))
+                    }
+                }
+            }
+            val unplayed = visible.filter { (totals[it.id] ?: 0L) == 0L }
+            if (unplayed.isNotEmpty()) {
+                item { Text("Not played yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+                items(unplayed.size) { i ->
+                    val g = unplayed[i]
+                    Row(Modifier.fillMaxWidth().clickable { onOpenGame(g.id) }, verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(g, 36.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(g.title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+
+            item {
                 Text("Daily play time", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
