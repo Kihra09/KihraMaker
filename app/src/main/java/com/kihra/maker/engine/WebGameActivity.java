@@ -90,12 +90,14 @@ public class WebGameActivity extends Activity {
         gameId = String.valueOf(getIntent().getStringExtra(EngineLauncher.EXTRA_GAME_ID));
         haptics = getIntent().getBooleanExtra(EngineLauncher.EXTRA_HAPTICS, true);
         SessionLog.gameStarted(getApplicationContext());
+        SessionLog.webReset(getApplicationContext());
 
         project = new File(path == null ? "" : path);
         File www = new File(project, "www");
         webRoot = new File(www, "index.html").isFile() ? www : project;
         host = "g" + Shots.INSTANCE.key(gameId) + ".kihra.local";
         nwOn = decideNw();
+        SessionLog.webLine(getApplicationContext(), "start: root=" + webRoot + " nwLayer=" + nwOn);
 
         root = new RelativeLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -138,10 +140,9 @@ public class WebGameActivity extends Activity {
                 String line = m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")";
                 if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
                     Log.e(TAG, "console: " + line);
+                    SessionLog.webLine(getApplicationContext(), "ERROR " + line);
                     problems.add(line);
                     while (problems.size() > 8) problems.poll();
-                } else {
-                    Log.w(TAG, "console: " + line);
                 }
                 return true;
             }
@@ -234,7 +235,7 @@ public class WebGameActivity extends Activity {
             }
             File f = new File(webRoot, android.net.Uri.decode(p)).getCanonicalFile();
             if (!f.getPath().startsWith(webRoot.getCanonicalPath()) || !f.isFile()) {
-                if (missing++ < 25) Log.e(TAG, "404 " + p);
+                if (missing++ < 60) SessionLog.webLine(getApplicationContext(), "MISSING " + p);
                 return new WebResourceResponse("text/plain", "utf-8", 404, "Not found", cors, new ByteArrayInputStream(new byte[0]));
             }
             String name = f.getName();
@@ -312,13 +313,20 @@ public class WebGameActivity extends Activity {
 
     // ---- loading watchdog: tells the player (and the log) why a game doesn't start ----
 
+    private int tickCount = 0;
+
     private void tickLoading() {
         ui.postDelayed(() -> {
             if (isFinishing() || loadInfo == null) return;
+            if (++tickCount % 5 == 0) {
+                web.evaluateJavascript("(function(){try{return (window.SceneManager&&SceneManager._scene?SceneManager._scene.constructor.name:'no scene')+' db='+(window.DataManager&&DataManager.isDatabaseLoaded?DataManager.isDatabaseLoaded():'?')+' title='+document.title}catch(e){return 'probe failed '+e}})()",
+                        v -> SessionLog.webLine(getApplicationContext(), "state: " + v + " | " + served + " files, " + missing + " missing"));
+            }
             web.evaluateJavascript("(typeof SceneManager!=='undefined'&&SceneManager._scene&&SceneManager._scene.constructor&&SceneManager._scene.constructor.name!=='Scene_Boot')?'1':'0'", v -> {
                 if (loadInfo == null) return;
                 if (v != null && v.contains("1")) {
                     ready = true;
+                    SessionLog.webLine(getApplicationContext(), "ready after " + ((System.currentTimeMillis() - loadStart) / 1000) + "s, " + served + " files");
                     root.removeView(loadInfo);
                     loadInfo = null;
                     return;
@@ -347,6 +355,7 @@ public class WebGameActivity extends Activity {
                     msg.append("\n\nThe game reported no errors, so it may just be loading a lot of files.");
                 }
                 if (missing > 0) msg.append("\nMissing files: ").append(missing).append(" (listed in the log)");
+                SessionLog.webLine(getApplicationContext(), "NOT READY round " + round + ", " + served + " files read, " + missing + " missing");
                 Log.e(TAG, "Not ready after round " + round + ": " + msg.toString().replace('\n', ' '));
                 new AlertDialog.Builder(this)
                         .setTitle("Still loading...")

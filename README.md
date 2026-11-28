@@ -90,3 +90,4 @@ scripts/build-engine.sh raises Graphics.frame_rate's cap from 120 to 960 so 4x-1
 - Update 15: pathCache off by default (engine no longer lists every game file at start; setting "Index all files at start"). MV/MZ: own NW.js/Node stand-in (require fs/path/os, process, nw) injected when plugins use it, saves then live as files in the game folder; loading dialog can retry with/without it.
 - Update 16: game assistant rebuilt to the spec PDFs (Play Games streak card states/tokens, profile pills under the card, status incl. Dropped, tags with filters, per-game 14-day/12-week charts, 560dp column cap). File index turns on automatically when top-level folders differ in case.
 - Update 17: share stats as a picture, daily-goal notification, FileProvider.
+- Update 18: MV/MZ games write their own log (missing files, errors, loading state) into the game log.

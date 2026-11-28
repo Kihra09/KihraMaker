@@ -35,6 +35,23 @@ object SessionLog {
         runCatching { pending(context).writeText(game.id.replace('\t', ' ') + "\t" + game.title.replace('\t', ' ')) }
     }
 
+    private fun webLogFile(context: Context) = File(base(context), "weblog.txt")
+
+    /** MV/MZ games: our own log (logcat is flooded and rotates too fast to keep the game's errors). */
+    @JvmStatic
+    fun webReset(context: Context) {
+        runCatching { webLogFile(context).delete() }
+    }
+
+    @JvmStatic
+    fun webLine(context: Context, text: String) {
+        runCatching {
+            val f = webLogFile(context)
+            if (f.length() > 200_000) return
+            f.appendText(SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date()) + "  " + text + "\n")
+        }
+    }
+
     /** Game process side. */
     @JvmStatic
     fun gameStarted(context: Context) {
@@ -72,13 +89,14 @@ object SessionLog {
             crashed -> "closed unexpectedly (crash or force close)"
             else -> "closed normally"
         }
-        val log = capture(context, title, note, boot)
+        val web = if (game?.rgss?.isWeb == true) runCatching { webLogFile(context).readText() }.getOrNull() else null
+        val log = capture(context, title, note, boot, web)
         if (game != null) SaveBackup.backup(context, game)
         return Ended(game, title, crashed, log, stuck)
     }
 
     /** Saves the app's recent system log (only this app's lines are visible to it). */
-    fun capture(context: Context, title: String, note: String, bootMarks: String? = null): File? = runCatching {
+    fun capture(context: Context, title: String, note: String, bootMarks: String? = null, webLog: String? = null): File? = runCatching {
         val proc = ProcessBuilder("logcat", "-d", "-v", "threadtime", "-t", "12000")
             .redirectErrorStream(true).start()
         // Drop per-frame FPS prints and vendor noise so the engine's start-up lines are not pushed out.
@@ -97,6 +115,10 @@ object SessionLog {
             if (bootMarks != null) {
                 appendLine("Boot marks:")
                 appendLine(if (bootMarks.isBlank()) "(none: the engine never reached the game script)" else bootMarks)
+            }
+            if (webLog != null) {
+                appendLine("Web game log:")
+                appendLine(if (webLog.isBlank()) "(nothing recorded)" else webLog)
             }
             appendLine("----")
         }
