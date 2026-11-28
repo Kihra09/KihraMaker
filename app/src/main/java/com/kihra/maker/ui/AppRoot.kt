@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
@@ -105,6 +106,8 @@ fun AppRoot(store: GameStore) {
     var logs by remember { mutableStateOf(emptyList<File>()) }
     var achFlags by remember { mutableStateOf(com.kihra.maker.data.Achievements.Flags()) }
     var viewingLog by remember { mutableStateOf<File?>(null) }
+    var popups by remember { mutableStateOf<List<String>>(emptyList()) }
+    var crashed by remember { mutableStateOf<SessionLog.Ended?>(null) }
     var backupsFor by remember { mutableStateOf<Game?>(null) }
     var gameForPicker by remember { mutableStateOf<Game?>(null) }
     var setupId by remember { mutableStateOf<String?>(null) }
@@ -122,6 +125,8 @@ fun AppRoot(store: GameStore) {
         segments = seg
         shots = sh
         val ended = withContext(Dispatchers.IO) { SessionLog.finish(context, games) }
+        val fresh = withContext(Dispatchers.IO) { runCatching { com.kihra.maker.data.AchievementWatcher.check(context).toList() }.getOrDefault(emptyList()) }
+        if (fresh.isNotEmpty()) popups = popups + fresh
         logs = withContext(Dispatchers.IO) { SessionLog.list(context) }
         achFlags = withContext(Dispatchers.IO) {
             val ctl = File(com.kihra.maker.data.AppPaths.base(context), "controls")
@@ -138,7 +143,7 @@ fun AppRoot(store: GameStore) {
             )
         }
         if (ended != null && ended.crashed) {
-            message = "${ended.title} closed unexpectedly. A log was saved in Settings > Logs."
+            crashed = ended
         }
     }
     val playtime = remember(segments) { PlayLog.totals(segments) }
@@ -426,18 +431,25 @@ fun AppRoot(store: GameStore) {
         }
     }
 
-    fun launchGame(g: Game) {
+    fun launchGame(g: Game, safe: Boolean = false) {
         val started = g.copy(lastPlayed = System.currentTimeMillis())
         val run: () -> Unit = {
             update(games.map { if (it.id == g.id) started else it })
             val wall = if (settings.wallpaperInGame) wallpaperFile?.absolutePath.orEmpty() else ""
-            val err = EngineLauncher.launch(context, started, rtpPath, wall)
+            val toRun = if (settings.sharedSettings) started.copy(settings = started.settings.sharedWith(settings.defaults)) else started
+            val err = EngineLauncher.launch(context, toRun, rtpPath, wall, safe, settings.sharedLayout)
             if (err == null) SessionLog.markStart(context, started) else message = err
         }
         // Unpacked games live in the app's own storage; folders, zips and the RTP need file access.
         if (g.extracted && rtpPath.isBlank()) run() else withStorage(action = run)
     }
 
+    LaunchedEffect(popups) {
+        if (popups.isNotEmpty()) {
+            kotlinx.coroutines.delay(4000)
+            popups = popups.drop(1)
+        }
+    }
     LaunchedEffect(message) {
         message?.let {
             snackbar.showSnackbar(it)
@@ -459,6 +471,21 @@ fun AppRoot(store: GameStore) {
                     modifier = Modifier.fillMaxSize(),
                 )
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (settings.light) 0.2f else 0.55f)))
+            }
+
+            popups.firstOrNull()?.let { t ->
+                androidx.compose.ui.window.Popup(alignment = Alignment.TopStart) {
+                    androidx.compose.material3.Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                        color = Color(0xE6202020),
+                        modifier = Modifier.padding(12.dp),
+                    ) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            Text("Achievement unlocked", color = Color(0xFFFFC107), style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                            Text(t, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                }
             }
 
             if (open != null) {
@@ -626,9 +653,21 @@ fun AppRoot(store: GameStore) {
         }
 
         games.firstOrNull { it.id == setupId }?.let { g ->
+            val shared = settings.sharedSettings
             GameSetupDialog(
-                game = g,
-                onChange = { st -> update(games.map { if (it.id == g.id) it.copy(settings = st) else it }) },
+                game = if (shared) g.copy(settings = g.settings.sharedWith(settings.defaults)) else g,
+                sharedNote = shared,
+                onChange = { st ->
+                    if (shared) {
+                        // Shared fields live in the defaults; the per-game ones stay on the game.
+                        changeSettings(settings.copy(defaults = st.copy(customRuby = "", gameFont = "", padMap = "", gestures = "", safeMode = false)))
+                        update(games.map {
+                            if (it.id == g.id) it.copy(settings = it.settings.copy(customRuby = st.customRuby, gameFont = st.gameFont, padMap = st.padMap, gestures = st.gestures, safeMode = st.safeMode)) else it
+                        })
+                    } else {
+                        update(games.map { if (it.id == g.id) it.copy(settings = st) else it })
+                    }
+                },
                 onDone = {
                     val wasNew = !g.configured
                     update(games.map { if (it.id == g.id) it.copy(configured = true) else it })
@@ -654,6 +693,34 @@ fun AppRoot(store: GameStore) {
                 s = settings.defaults,
                 onChange = { changeSettings(settings.copy(defaults = it)) },
                 onDone = { defaultsOpen = false },
+            )
+        }
+
+        crashed?.let { c ->
+            AlertDialog(
+                onDismissRequest = { crashed = null },
+                title = { Text(if (c.stuck) "${c.title} got stuck while loading" else "${c.title} closed unexpectedly") },
+                text = {
+                    Text(
+                        (if (c.stuck) "The game never drew its first screen. Large games can take a while, but this one didn't finish. " +
+                            "Safe mode starts the plain engine without any extras and often fixes it. " else "") +
+                            "A log was saved. If this keeps happening, open the log, copy it and send it to get the game fixed. " +
+                            "Your saves were backed up.",
+                    )
+                },
+                confirmButton = {
+                    if (c.stuck && c.game != null) {
+                        TextButton(onClick = { val g = c.game; crashed = null; launchGame(g, safe = true) }) { Text("Retry in safe mode") }
+                    } else {
+                        TextButton(onClick = { viewingLog = c.log; crashed = null }, enabled = c.log != null) { Text("View log") }
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        if (c.stuck) TextButton(onClick = { viewingLog = c.log; crashed = null }, enabled = c.log != null) { Text("View log") }
+                        TextButton(onClick = { crashed = null }) { Text("Close") }
+                    }
+                },
             )
         }
 

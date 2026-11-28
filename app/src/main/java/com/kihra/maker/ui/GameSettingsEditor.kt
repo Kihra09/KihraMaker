@@ -145,6 +145,14 @@ fun GameSettingsEditor(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     SwitchRow("Frame skip (smoother on slow phones)", s.frameSkip) { onChange(s.copy(frameSkip = it)) }
+                    if (forGame) {
+                        SwitchRow("Safe mode: no fixes, cheats or extras", s.safeMode) { onChange(s.copy(safeMode = it)) }
+                        Text(
+                            "Starts the plain engine only. Turn it on if this game hangs on loading or crashes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text("Internal resolution", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.horizontalScroll(rememberScrollState()).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { x ->
@@ -263,6 +271,7 @@ fun GameSettingsEditor(
 @Composable
 fun GameSetupDialog(
     game: Game,
+    sharedNote: Boolean = false,
     onChange: (GameSettings) -> Unit,
     onDone: () -> Unit,
     actions: DetailActions,
@@ -281,7 +290,8 @@ fun GameSetupDialog(
                     maxLines = 1,
                 )
                 Text(
-                    "These settings are saved for this game only. Open this screen again any time by long-pressing the game in the library.",
+                    if (sharedNote) "Shared settings are on: display, controls and advanced options are the same for every game (change this in Settings). Font, fixes, gestures and controller mapping stay per game. Long-press a game to open this screen again."
+                    else "These settings are saved for this game only. Open this screen again any time by long-pressing the game in the library.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

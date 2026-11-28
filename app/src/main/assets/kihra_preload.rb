@@ -1,6 +1,15 @@
 # Loaded by KihraMaker before the game's own scripts. Generated settings: __RGSS__ = RGSS version (1, 2 or 3).
 KIHRA_RGSS = __RGSS__
 
+# Progress marks the app reads to tell "still loading" from "stuck" (and to explain a hang).
+module KihraBoot
+  def self.mark(text)
+    File.open("kihra_boot.txt", "a") { |f| f.puts("#{Time.now.to_f}\t#{text}") }
+  rescue StandardError
+  end
+end
+KihraBoot.mark("shim loaded (RGSS #{KIHRA_RGSS})")
+
 # ---- Old Ruby (1.9) methods that RPG Maker VX Ace games still use ----
 begin
   class Hash
@@ -206,6 +215,10 @@ begin
   module KihraGraphicsHook
     def update(*args)
       r = super
+      unless @kihra_first
+        @kihra_first = true
+        KihraBoot.mark("first frame")
+      end
       KihraCtl.poll
       r
     end

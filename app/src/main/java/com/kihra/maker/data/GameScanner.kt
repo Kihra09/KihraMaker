@@ -51,6 +51,19 @@ object GameScanner {
         return null
     }
 
+    /** RPG Maker 2000/2003: a folder with RPG_RT.ldb or RPG_RT.ini. */
+    private fun findOldRoot(dir: File, maxDepth: Int = 3): File? {
+        var level = listOf(dir)
+        repeat(maxDepth + 1) {
+            level.firstOrNull { d ->
+                d.listFiles { f -> f.isFile && (f.name.equals("RPG_RT.ldb", true) || f.name.equals("RPG_RT.ini", true)) }?.isNotEmpty() == true
+            }?.let { return it }
+            level = level.flatMap { d -> d.listFiles { f -> f.isDirectory }?.toList().orEmpty() }
+            if (level.isEmpty()) return null
+        }
+        return null
+    }
+
     private fun webTitle(root: File): String {
         val pkg = File(root, "package.json")
         runCatching {
@@ -71,6 +84,22 @@ object GameScanner {
                         path = root.absolutePath,
                         title = webTitle(root),
                         rgss = kind,
+                        rtp = "",
+                        addedAt = System.currentTimeMillis(),
+                        extracted = extracted,
+                        extractRoot = extractRoot,
+                    )
+                )
+            }
+        }
+        if (findGameRoot(dir) == null && findWebRoot(dir) == null) {
+            findOldRoot(dir)?.let { root ->
+                return Result.Ok(
+                    Game(
+                        id = root.absolutePath,
+                        path = root.absolutePath,
+                        title = root.name,
+                        rgss = Rgss.EASYRPG,
                         rtp = "",
                         addedAt = System.currentTimeMillis(),
                         extracted = extracted,

@@ -123,18 +123,12 @@ fun GameDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!game.rgss.supported) {
-                InfoCard(
-                    "This doesn't look like a supported RPG Maker game, so it can't be started.",
-                    isError = true,
-                )
-            } else if (game.rtp.isNotBlank() && !rtpInstalled) {
-                InfoCard(
-                    "This game uses the ${game.rtp} RTP and it isn't installed. If the game can't find its default " +
-                        "graphics or sounds, import the RTP in Settings.",
-                    isError = true,
-                )
+            val notes by androidx.compose.runtime.produceState(emptyList<com.kihra.maker.data.Compat.Note>(), game.id, rtpInstalled) {
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.kihra.maker.data.Compat.check(game, rtpInstalled)
+                }
             }
+            notes.forEach { n -> InfoCard(n.text, isError = n.blocking) }
 
             if (game.fromZip) {
                 InfoCard(

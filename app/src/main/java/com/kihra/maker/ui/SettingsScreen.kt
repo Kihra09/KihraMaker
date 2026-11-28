@@ -78,6 +78,44 @@ fun SettingsScreen(
             )
             OutlinedButton(onClick = onOpenDefaults, modifier = Modifier.fillMaxWidth()) { Text("Default game settings") }
 
+            var warn by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            SwitchRow("Share one button layout for all games", settings.sharedLayout) {
+                if (it) warn = "layout" else onChange(settings.copy(sharedLayout = false))
+            }
+            SwitchRow("Share display, controls and advanced settings", settings.sharedSettings) {
+                if (it) warn = "settings" else onChange(settings.copy(sharedSettings = false))
+            }
+            Text(
+                "Wallpaper is already shared by every game of every RPG Maker version.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            warn?.let { kind ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { warn = null },
+                    title = { Text("Before you share") },
+                    text = {
+                        Text(
+                            if (kind == "layout")
+                                "Every game will use the same buttons, positions, sizes and keys, and moving a button in one game moves it everywhere. " +
+                                    "Risks: a layout made for one game (for example VX Ace) may have keys that another version or game does not use, " +
+                                    "and deleting or hiding a button affects every game. Each game's own layout is kept and comes back if you switch this off."
+                            else
+                                "Display, controls and advanced settings (frame rate, fast forward speed, internal resolution, opacity, size) will be the same for every game, " +
+                                    "taken from Default game settings. Risks: a setting that suits one game may be wrong for another (for example a low internal resolution or a frame cap), " +
+                                    "and your per-game choices are ignored until you switch this off. They are not deleted.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            onChange(if (kind == "layout") settings.copy(sharedLayout = true) else settings.copy(sharedSettings = true))
+                            warn = null
+                        }) { Text("I understand, turn on") }
+                    },
+                    dismissButton = { TextButton(onClick = { warn = null }) { Text("Cancel") } },
+                )
+            }
+
             Section("Theme")
             Card(
                 shape = RoundedCornerShape(20.dp),

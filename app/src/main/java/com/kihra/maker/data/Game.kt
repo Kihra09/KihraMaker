@@ -9,12 +9,13 @@ enum class Rgss(val label: String) {
     VX_ACE("RPG Maker VX Ace"),
     MV("RPG Maker MV"),
     MZ("RPG Maker MZ"),
+    EASYRPG("RPG Maker 2000/2003"),
     UNKNOWN("Unknown engine");
 
     val isWeb: Boolean get() = this == MV || this == MZ
 
     /** The engine handles all three, but VX Ace is the one we test and tune for. */
-    val supported: Boolean get() = this != UNKNOWN
+    val supported: Boolean get() = this != UNKNOWN && this != EASYRPG
 }
 
 enum class ScaleMode(val label: String) {
@@ -53,6 +54,8 @@ data class GameSettings(
     val ffSpeed: Int = 2,
     /** Internal resolution multiplier, 0.5 .. 2. */
     val renderScale: Float = 1f,
+    /** Start the engine without any KihraMaker script (fixes, cheats). For games that hang or crash. */
+    val safeMode: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("scaleMode", scaleMode.name)
@@ -72,6 +75,7 @@ data class GameSettings(
         put("gameFont", gameFont)
         put("ffSpeed", ffSpeed)
         put("renderScale", renderScale.toDouble())
+        put("safeMode", safeMode)
     }
 
     companion object {
@@ -93,9 +97,19 @@ data class GameSettings(
             gameFont = o.optString("gameFont", ""),
             ffSpeed = o.optInt("ffSpeed", 2).takeIf { it in listOf(1, 2, 4, 8, 16) } ?: 2,
             renderScale = o.optDouble("renderScale", 1.0).toFloat().coerceIn(0.5f, 2f),
+            safeMode = o.optBoolean("safeMode", false),
         )
     }
 }
+
+/** Settings used when "share settings" is on: defaults, except what only makes sense for one game. */
+fun GameSettings.sharedWith(defaults: GameSettings): GameSettings = defaults.copy(
+    customRuby = customRuby,
+    gameFont = gameFont,
+    padMap = padMap,
+    gestures = gestures,
+    safeMode = safeMode,
+)
 
 data class Game(
     val id: String,
@@ -143,6 +157,7 @@ data class Game(
         put("configured", configured)
         put("ffSpeed", settings.ffSpeed)
         put("renderScale", settings.renderScale.toDouble())
+        put("safeMode", settings.safeMode)
         put("customRuby", settings.customRuby)
         put("padMap", settings.padMap)
         put("gestures", settings.gestures)
@@ -202,6 +217,7 @@ data class Game(
                     gameFont = o.optString("gameFont", ""),
                     ffSpeed = o.optInt("ffSpeed", 2).takeIf { it in listOf(1, 2, 4, 8, 16) } ?: 2,
                     renderScale = o.optDouble("renderScale", 1.0).toFloat().coerceIn(0.5f, 2f),
+                    safeMode = o.optBoolean("safeMode", false),
                 ),
             )
         }

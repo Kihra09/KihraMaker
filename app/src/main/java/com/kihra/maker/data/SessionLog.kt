@@ -15,7 +15,14 @@ import java.util.concurrent.TimeUnit
  * launcher saves the app's recent system log and backs up the game's saves.
  */
 object SessionLog {
-    data class Ended(val game: Game?, val title: String, val crashed: Boolean, val log: File?)
+    data class Ended(
+        val game: Game?,
+        val title: String,
+        val crashed: Boolean,
+        val log: File?,
+        /** The game process was killed before the game drew its first frame: it was stuck loading. */
+        val stuck: Boolean = false,
+    )
 
     private fun base(context: Context) = AppPaths.base(context)
     private fun pending(context: Context) = File(base(context), "session.pending")
@@ -58,13 +65,20 @@ object SessionLog {
         p.delete()
         running(context).delete()
         val game = games.firstOrNull { it.id == id }
-        val log = capture(context, title, if (crashed) "closed unexpectedly (crash or force close)" else "closed normally")
+        val boot = game?.takeIf { !it.rgss.isWeb }?.let { runCatching { File(it.path, "kihra_boot.txt").readText() }.getOrNull() }
+        val stuck = crashed && game != null && !game.rgss.isWeb && boot?.contains("first frame") != true
+        val note = when {
+            stuck -> "stuck while loading (never drew a frame)"
+            crashed -> "closed unexpectedly (crash or force close)"
+            else -> "closed normally"
+        }
+        val log = capture(context, title, note, boot)
         if (game != null) SaveBackup.backup(context, game)
-        return Ended(game, title, crashed, log)
+        return Ended(game, title, crashed, log, stuck)
     }
 
     /** Saves the app's recent system log (only this app's lines are visible to it). */
-    fun capture(context: Context, title: String, note: String): File? = runCatching {
+    fun capture(context: Context, title: String, note: String, bootMarks: String? = null): File? = runCatching {
         val proc = ProcessBuilder("logcat", "-d", "-v", "threadtime", "-t", "3000")
             .redirectErrorStream(true).start()
         val text = proc.inputStream.bufferedReader().readText()
@@ -78,6 +92,10 @@ object SessionLog {
             appendLine("Result: $note")
             appendLine("Time: ${Date()}")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            if (bootMarks != null) {
+                appendLine("Boot marks:")
+                appendLine(if (bootMarks.isBlank()) "(none: the engine never reached the game script)" else bootMarks)
+            }
             appendLine("----")
         }
         file.writeText(header + text)

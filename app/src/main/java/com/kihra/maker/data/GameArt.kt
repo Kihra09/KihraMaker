@@ -64,6 +64,7 @@ object GameArt {
     }
 
     private fun extract(game: Game): Bitmap? {
+        if (game.rgss.isWeb) return extractWeb(game)
         val dirs = listOf("Graphics/Titles1", "Graphics/Titles")
         if (game.fromZip) {
             ZipFile(File(game.zipPath)).use { zip ->
@@ -80,5 +81,21 @@ object GameArt {
             if (img != null) return BitmapFactory.decodeFile(img.absolutePath)
         }
         return null
+    }
+
+    /** MV/MZ: title picture named in data/System.json, else the game's icon. */
+    private fun extractWeb(game: Game): Bitmap? {
+        val base = File(game.path)
+        val root = if (File(base, "www/index.html").isFile) File(base, "www") else base
+        val title = runCatching {
+            val j = org.json.JSONObject(File(root, "data/System.json").readText())
+            j.optString("title1Name")
+        }.getOrDefault("")
+        val candidates = mutableListOf<File>()
+        if (title.isNotEmpty()) exts.forEach { candidates += File(root, "img/titles1/$title.$it") }
+        exts.forEach { candidates += File(root, "icon/icon.$it") }
+        File(root, "img/titles1").listFiles()?.sortedBy { it.name }?.let { candidates += it }
+        val f = candidates.firstOrNull { it.isFile && it.extension.lowercase() in exts } ?: return null
+        return BitmapFactory.decodeFile(f.absolutePath)
     }
 }

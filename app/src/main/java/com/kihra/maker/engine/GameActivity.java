@@ -98,7 +98,8 @@ public class GameActivity extends SDLActivity {
         mGestures = new GestureHandler(mLayout,
                 getIntent().getStringExtra(EngineLauncher.EXTRA_GESTURES),
                 getResources().getDisplayMetrics().density,
-                () -> { if (mHaptics) tick(); });
+                () -> { if (mHaptics) tick(); },
+                SDLActivity::onNativeKeyDown, SDLActivity::onNativeKeyUp);
         mGamepadInvisible = isAndroidTV() || isChromebook();
         mGamepad.init(cfg, mGamepadInvisible);
         final GamepadButton.OnKeyDownListener downL = key -> {
@@ -113,7 +114,7 @@ public class GameActivity extends SDLActivity {
             File base = getExternalFilesDir(null);
             if (base == null) base = getFilesDir();
             mControls = new ControlsEditor(this, mLayout,
-                    new File(base, "controls/" + Shots.INSTANCE.key(mGameId) + ".json"),
+                    new File(base, "controls/" + layoutName() + ".json"),
                     new File(base, "controls/default.json"),
                     getIntent().getBooleanExtra(EngineLauncher.EXTRA_JOYSTICK, false),
                     cfg.diagonalMovement, cfg.opacity, downL, upL, this::showMenu);
@@ -132,7 +133,16 @@ public class GameActivity extends SDLActivity {
             mLayout.addView(tvFps);
             setupWallpaper();
             setupRenderScale();
+            mAch = new AchievementPopup(this, mLayout, () -> {
+                if (mSegmentStart > 0) {
+                    long now = System.currentTimeMillis();
+                    PlayLog.append(getApplicationContext(), mGameId, mSegmentStart, now);
+                    mSegmentStart = now;
+                }
+            });
+            mAch.start();
         }
+        watchLoading(0);
     }
 
     /**
@@ -265,6 +275,7 @@ public class GameActivity extends SDLActivity {
                 "Quick save",
                 "Quick load",
                 "Edit layout",
+                "Exit game",
         };
         new AlertDialog.Builder(this)
                 .setTitle("Menu")
@@ -276,11 +287,49 @@ public class GameActivity extends SDLActivity {
                         case 3: quick("qsave"); break;
                         case 4: quick("qload"); break;
                         case 5: if (mControls != null) mControls.toggle(); break;
+                        case 6: confirmExit(); break;
                         default: break;
                     }
                 })
                 .setNegativeButton("Close", null)
                 .show();
+    }
+
+    private void confirmExit() {
+        new AlertDialog.Builder(this)
+                .setTitle("Exit the game?")
+                .setMessage("Progress that wasn't saved in the game is lost.")
+                .setPositiveButton("Exit", (d, w) -> finish())
+                .setNegativeButton("Keep playing", null)
+                .show();
+    }
+
+    private AchievementPopup mAch;
+
+    /** If the game hasn't drawn its first frame after a while, say so and offer a way out. */
+    private void watchLoading(final int round) {
+        mMainHandler.postDelayed(() -> {
+            if (isFinishing()) return;
+            String marks = "";
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(new File(GAME_PATH, "kihra_boot.txt")))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line).append('\n');
+                marks = sb.toString();
+            } catch (Exception ignored) {
+            }
+            if (marks.contains("first frame")) return;
+            String where = marks.isEmpty()
+                    ? "The engine hasn't started the game's scripts yet (large archives and big games can take a minute)."
+                    : "The game's scripts started but it hasn't drawn its first screen yet.";
+            new AlertDialog.Builder(this)
+                    .setTitle("Still loading...")
+                    .setMessage(where + "\n\nYou can keep waiting, or exit and use \"Retry in safe mode\" in the app.")
+                    .setPositiveButton("Keep waiting", (d, w) -> watchLoading(round + 1))
+                    .setNegativeButton("Exit game", (d, w) -> finish())
+                    .setCancelable(false)
+                    .show();
+        }, round == 0 ? 40_000 : 60_000);
     }
 
     private void quick(final String cmd) {
@@ -348,6 +397,11 @@ public class GameActivity extends SDLActivity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    private String layoutName() {
+        String n = getIntent().getStringExtra(EngineLauncher.EXTRA_LAYOUT);
+        return n == null || n.isEmpty() ? Shots.INSTANCE.key(mGameId) : n;
     }
 
     private void showCheats() {
@@ -421,6 +475,7 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        if (mAch != null) mAch.stop();
         flushPlayTime();
         SessionLog.gameEnded(getApplicationContext());
         super.onDestroy();

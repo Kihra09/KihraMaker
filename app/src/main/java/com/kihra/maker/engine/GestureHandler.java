@@ -10,8 +10,6 @@ import android.widget.ImageButton;
 import com.hatkid.mkxpz.gamepad.GamepadButton;
 import com.hatkid.mkxpz.gamepad.GamepadDPad;
 
-import org.libsdl.app.SDLActivity;
-
 import java.util.HashMap;
 
 /**
@@ -24,13 +22,18 @@ final class GestureHandler {
     private final HashMap<String, Integer> keys = new HashMap<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable haptic;
+    private final java.util.function.IntConsumer down;
+    private final java.util.function.IntConsumer up;
 
     private boolean tracking = false;
     private float sx, sy;
     private long st;
     private int pointerId = -1;
 
-    GestureHandler(ViewGroup root, String config, float density, Runnable haptic) {
+    GestureHandler(ViewGroup root, String config, float density, Runnable haptic,
+                   java.util.function.IntConsumer down, java.util.function.IntConsumer up) {
+        this.down = down;
+        this.up = up;
         this.root = root;
         this.density = density;
         this.haptic = haptic;
@@ -96,8 +99,8 @@ final class GestureHandler {
 
     private void press(final int key) {
         if (haptic != null) haptic.run();
-        SDLActivity.onNativeKeyDown(key);
-        handler.postDelayed(() -> SDLActivity.onNativeKeyUp(key), 70);
+        down.accept(key);
+        handler.postDelayed(() -> up.accept(key), 70);
     }
 
     private static boolean isOverControl(View v, float rx, float ry) {

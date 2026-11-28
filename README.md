@@ -79,3 +79,8 @@ One movable menu button: screenshot, fast forward (speed chosen in the game's se
 
 ## Engine patch
 scripts/build-engine.sh raises Graphics.frame_rate's cap from 120 to 960 so 4x-16x fast forward is possible.
+
+## Update 12 notes
+- MV/MZ games use the same on-screen controls, layout editor, gestures, menu (Screenshot, Fast forward, Edit layout, Exit game), FPS counter and wallpaper as the other games.
+- Games that stay on the loading screen show a dialog with the errors the game reported (also in the log).
+- Achievements pop up top-left in the launcher and in games; MV/MZ icons and covers come from the game's title picture.

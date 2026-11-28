@@ -25,6 +25,10 @@ data class AppSettings(
     val filter: String = "",
     /** Settings copied to every newly added game (display, controls, advanced). */
     val defaults: GameSettings = GameSettings(),
+    /** One button layout (position, size, keys) for every game of every RPG Maker version. */
+    val sharedLayout: Boolean = false,
+    /** Display, controls and advanced settings come from the defaults for every game. */
+    val sharedSettings: Boolean = false,
 ) {
     companion object {
         private fun file(context: Context) = File(AppPaths.base(context), "settings.json")
@@ -44,6 +48,8 @@ data class AppSettings(
                 sort = o.optString("sort", "RECENT"),
                 filter = o.optString("filter", ""),
                 defaults = o.optJSONObject("defaults")?.let { GameSettings.fromJson(it) } ?: GameSettings(),
+                sharedLayout = o.optBoolean("sharedLayout", false),
+                sharedSettings = o.optBoolean("sharedSettings", false),
             )
         }.getOrDefault(AppSettings())
 
@@ -61,6 +67,8 @@ data class AppSettings(
                         .put("sort", s.sort)
                         .put("filter", s.filter)
                         .put("defaults", s.defaults.toJson())
+                        .put("sharedLayout", s.sharedLayout)
+                        .put("sharedSettings", s.sharedSettings)
                         .toString(2)
                 )
             }
