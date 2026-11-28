@@ -56,6 +56,8 @@ data class GameSettings(
     val renderScale: Float = 1f,
     /** Start the engine without any KihraMaker script (fixes, cheats). For games that hang or crash. */
     val safeMode: Boolean = false,
+    /** Index every game file at start (the engine's path cache). Slow on big games; off by default. */
+    val pathCache: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("scaleMode", scaleMode.name)
@@ -76,6 +78,7 @@ data class GameSettings(
         put("ffSpeed", ffSpeed)
         put("renderScale", renderScale.toDouble())
         put("safeMode", safeMode)
+        put("pathCache", pathCache)
     }
 
     companion object {
@@ -98,6 +101,7 @@ data class GameSettings(
             ffSpeed = o.optInt("ffSpeed", 2).takeIf { it in listOf(1, 2, 4, 8, 16) } ?: 2,
             renderScale = o.optDouble("renderScale", 1.0).toFloat().coerceIn(0.5f, 2f),
             safeMode = o.optBoolean("safeMode", false),
+            pathCache = o.optBoolean("pathCache", false),
         )
     }
 }
@@ -109,6 +113,7 @@ fun GameSettings.sharedWith(defaults: GameSettings): GameSettings = defaults.cop
     padMap = padMap,
     gestures = gestures,
     safeMode = safeMode,
+    pathCache = pathCache,
 )
 
 data class Game(
@@ -158,6 +163,7 @@ data class Game(
         put("ffSpeed", settings.ffSpeed)
         put("renderScale", settings.renderScale.toDouble())
         put("safeMode", settings.safeMode)
+        put("pathCache", settings.pathCache)
         put("customRuby", settings.customRuby)
         put("padMap", settings.padMap)
         put("gestures", settings.gestures)
@@ -218,6 +224,7 @@ data class Game(
                     ffSpeed = o.optInt("ffSpeed", 2).takeIf { it in listOf(1, 2, 4, 8, 16) } ?: 2,
                     renderScale = o.optDouble("renderScale", 1.0).toFloat().coerceIn(0.5f, 2f),
                     safeMode = o.optBoolean("safeMode", false),
+                    pathCache = o.optBoolean("pathCache", false),
                 ),
             )
         }

@@ -113,6 +113,8 @@ object EngineLauncher {
             put("fixedAspectRatio", s.scaleMode != ScaleMode.STRETCH)
             put("integerScalingActive", s.scaleMode == ScaleMode.INTEGER)
             put("vsync", false)
+            // The path cache lists every file of the game and RTP at start-up: tens of seconds on big games.
+            put("pathCache", s.pathCache)
             put("enableSettings", false)
             if (rtps.isNotEmpty()) put("RTP", JSONArray(rtps))
             // Safe mode: no KihraMaker script at all, just the plain engine.

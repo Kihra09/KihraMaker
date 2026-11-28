@@ -72,6 +72,8 @@ public class WebGameActivity extends Activity {
     private boolean fast = false;
     private int missing = 0;
     private volatile int served = 0;
+    private boolean nwOn = false;
+    private File project;
     private android.widget.TextView loadInfo;
     private final long loadStart = System.currentTimeMillis();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -89,10 +91,11 @@ public class WebGameActivity extends Activity {
         haptics = getIntent().getBooleanExtra(EngineLauncher.EXTRA_HAPTICS, true);
         SessionLog.gameStarted(getApplicationContext());
 
-        File project = new File(path == null ? "" : path);
+        project = new File(path == null ? "" : path);
         File www = new File(project, "www");
         webRoot = new File(www, "index.html").isFile() ? www : project;
         host = "g" + Shots.INSTANCE.key(gameId) + ".kihra.local";
+        nwOn = decideNw();
 
         root = new RelativeLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -177,6 +180,7 @@ public class WebGameActivity extends Activity {
         lip.addRule(RelativeLayout.CENTER_IN_PARENT);
         root.addView(loadInfo, lip);
         tickLoading();
+        if (nwOn) web.addJavascriptInterface(new NwBridge(this, webRoot), "KihraNW");
         setupControls();
         web.loadUrl("https://" + host + "/index.html");
         web.requestFocus();
@@ -212,6 +216,22 @@ public class WebGameActivity extends Activity {
         try {
             String p = req.getUrl().getPath();
             if (p == null || p.equals("/") || p.isEmpty()) p = "/index.html";
+            if (p.equals("/__kihra_nw.js")) {
+                java.io.InputStream a = getAssets().open("kihra_nw.js");
+                return new WebResourceResponse("application/javascript", "utf-8", 200, "OK", cors, a);
+            }
+            if (nwOn && p.equals("/index.html")) {
+                File idx = new File(webRoot, "index.html");
+                if (idx.isFile()) {
+                    String html = new String(java.nio.file.Files.readAllBytes(idx.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                    String tag = "<script src=\"/__kihra_nw.js\"></script>";
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("<head[^>]*>", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html);
+                    html = m.find() ? html.substring(0, m.end()) + tag + html.substring(m.end()) : tag + html;
+                    served++;
+                    return new WebResourceResponse("text/html", "utf-8", 200, "OK", cors,
+                            new ByteArrayInputStream(html.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                }
+            }
             File f = new File(webRoot, android.net.Uri.decode(p)).getCanonicalFile();
             if (!f.getPath().startsWith(webRoot.getCanonicalPath()) || !f.isFile()) {
                 if (missing++ < 25) Log.e(TAG, "404 " + p);
@@ -245,6 +265,49 @@ public class WebGameActivity extends Activity {
             Log.e(TAG, "serve failed: " + e);
             return new WebResourceResponse("text/plain", "utf-8", 500, "Error", cors, new ByteArrayInputStream(new byte[0]));
         }
+    }
+
+    // ---- NW.js stand-in: some MV/MZ plugins need require(), process or nw ----
+
+    /** A file named kihra_nw.txt ("on"/"off") in the game folder wins; otherwise plugins are scanned for NW.js/Node use. */
+    private boolean decideNw() {
+        try {
+            File o = new File(project, "kihra_nw.txt");
+            if (o.isFile()) return new String(java.nio.file.Files.readAllBytes(o.toPath())).trim().equals("on");
+            File[] plugins = new File(webRoot, "js/plugins").listFiles((d, n) -> n.endsWith(".js"));
+            java.util.regex.Pattern use = java.util.regex.Pattern.compile(
+                    "\\brequire\\s*\\(\\s*['\"](fs|path|os|nw\\.gui|child_process|fs-extra)|\\bnw\\.(Window|App|gui)|\\bprocess\\.(platform|argv|env|cwd|mainModule)|\\bchild_process\\b");
+            if (plugins != null) {
+                for (File f : plugins) {
+                    if (f.length() > 4_000_000) continue;
+                    String t = new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                    if (use.matcher(t).find()) {
+                        Log.w(TAG, "NW.js layer on: " + f.getName() + " uses it");
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "NW.js scan failed: " + e);
+        }
+        return false;
+    }
+
+    private void switchNw() {
+        nwOn = !nwOn;
+        try {
+            java.nio.file.Files.write(new File(project, "kihra_nw.txt").toPath(), (nwOn ? "on" : "off").getBytes());
+        } catch (Exception ignored) {
+        }
+        web.removeJavascriptInterface("KihraNW");
+        if (nwOn) web.addJavascriptInterface(new NwBridge(this, webRoot), "KihraNW");
+        problems.clear();
+        missing = 0;
+        served = 0;
+        ready = false;
+        Toast.makeText(this, nwOn ? "NW.js layer on, reloading" : "NW.js layer off, reloading", Toast.LENGTH_SHORT).show();
+        web.loadUrl("https://" + host + "/index.html");
+        watchLoading(0);
     }
 
     // ---- loading watchdog: tells the player (and the log) why a game doesn't start ----
@@ -290,6 +353,7 @@ public class WebGameActivity extends Activity {
                         .setMessage(msg.toString())
                         .setPositiveButton("Keep waiting", (d, w) -> watchLoading(round + 1))
                         .setNegativeButton("Exit game", (d, w) -> finish())
+                        .setNeutralButton(nwOn ? "Retry without NW.js layer" : "Retry with NW.js layer", (d, w) -> switchNw())
                         .setCancelable(false)
                         .show();
             });

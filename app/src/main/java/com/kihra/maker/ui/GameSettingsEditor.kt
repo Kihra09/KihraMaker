@@ -145,6 +145,12 @@ fun GameSettingsEditor(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     SwitchRow("Frame skip (smoother on slow phones)", s.frameSkip) { onChange(s.copy(frameSkip = it)) }
+                    SwitchRow("Index all files at start (slower start)", s.pathCache) { onChange(s.copy(pathCache = it)) }
+                    Text(
+                        "Leave off for fast starts. Turn on only if a game can't find files that differ in upper/lower case.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (forGame) {
                         SwitchRow("Safe mode: no fixes, cheats or extras", s.safeMode) { onChange(s.copy(safeMode = it)) }
                         Text(

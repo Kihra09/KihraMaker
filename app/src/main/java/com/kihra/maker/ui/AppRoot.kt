@@ -674,7 +674,7 @@ fun AppRoot(store: GameStore) {
                         // Shared fields live in the defaults; the per-game ones stay on the game.
                         changeSettings(settings.copy(defaults = st.copy(customRuby = "", gameFont = "", padMap = "", gestures = "", safeMode = false)))
                         update(games.map {
-                            if (it.id == g.id) it.copy(settings = it.settings.copy(customRuby = st.customRuby, gameFont = st.gameFont, padMap = st.padMap, gestures = st.gestures, safeMode = st.safeMode)) else it
+                            if (it.id == g.id) it.copy(settings = it.settings.copy(customRuby = st.customRuby, gameFont = st.gameFont, padMap = st.padMap, gestures = st.gestures, safeMode = st.safeMode, pathCache = st.pathCache)) else it
                         })
                     } else {
                         update(games.map { if (it.id == g.id) it.copy(settings = st) else it })
