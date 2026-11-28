@@ -149,7 +149,8 @@ fun AppRoot(store: GameStore) {
             val g = ended.game
             // A game that never drew a frame starts in safe mode next time (can be turned off in Game setup).
             if (ended.stuck && g != null && !g.settings.safeMode) {
-                update(games.map { if (it.id == g.id) it.copy(settings = it.settings.copy(safeMode = true)) else it })
+                games = games.map { if (it.id == g.id) it.copy(settings = it.settings.copy(safeMode = true)) else it }
+                store.save(games)
                 autoSafe = g.title
             }
         }
@@ -543,7 +544,10 @@ fun AppRoot(store: GameStore) {
                     // Pages: Assistant, Library, Gallery, Settings. Swiping and the bar both work.
                     HorizontalPager(state = pagerState, modifier = mod) { page ->
                         when (page) {
-                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size, goalMinutes = settings.goalMinutes, flags = achFlags)
+                            0 -> AssistantScreen(games = games, segments = segments, shotCount = shots.size, goalMinutes = settings.goalMinutes, flags = achFlags,
+                                weeklyGoalHours = settings.weeklyGoalHours,
+                                onGoals = { d, w -> changeSettings(settings.copy(goalMinutes = d, weeklyGoalHours = w)) },
+                                onOpenGame = { openId = it })
                             1 -> LibraryScreen(
                                 games = games,
                                 onAddFolder = { withStorage { folderPicker.launch(null) } },

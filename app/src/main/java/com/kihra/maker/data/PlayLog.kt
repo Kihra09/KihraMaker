@@ -94,6 +94,19 @@ object PlayLog {
         }.keys
     }
 
+    /** Play time per week (weeks start on Sunday) for the last [weeks] weeks, oldest first. */
+    fun perWeek(segments: List<Segment>, weeks: Int, zone: ZoneId = ZoneId.systemDefault()): List<Long> {
+        val today = LocalDate.now(zone)
+        val thisWeek = today.minusDays((today.dayOfWeek.value % 7).toLong())
+        val out = LongArray(weeks)
+        for ((d, ms) in Streaks.dayTotals(segments, null, zone)) {
+            val ws = d.minusDays((d.dayOfWeek.value % 7).toLong())
+            val idx = weeks - 1 - java.time.temporal.ChronoUnit.WEEKS.between(ws, thisWeek).toInt()
+            if (idx in 0 until weeks) out[idx] += ms
+        }
+        return out.toList()
+    }
+
     fun format(ms: Long): String {
         val minutes = ms / 60_000
         return when {

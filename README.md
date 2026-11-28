@@ -85,3 +85,4 @@ scripts/build-engine.sh raises Graphics.frame_rate's cap from 120 to 960 so 4x-1
 - Games that stay on the loading screen show a dialog with the errors the game reported (also in the log).
 - Achievements pop up top-left in the launcher and in games; MV/MZ icons and covers come from the game's title picture.
 - Update 13: the start-up script is lean (cheat code loads only when used, DLL stubs only for games with their own DLLs); a game that never draws a frame switches to safe mode automatically; live "Loading Ns" status for every game; MV/MZ serve files with range support.
+- Game assistant follows game_assistant_spec.pdf: hero card, daily/weekly goals, streak card (5 min/day, one missed day per week forgiven, restore, milestone claims, Sunday weeks), search and status filters, per-game streaks, recently played, favourite, last 12 weeks, not played yet. Game tags, metadata fetch and share-as-picture from the spec are not built yet.

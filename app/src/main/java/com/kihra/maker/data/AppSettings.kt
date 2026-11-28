@@ -19,6 +19,7 @@ data class AppSettings(
     val light: Boolean = false,
     /** Daily play goal in minutes, 0 = none. */
     val goalMinutes: Int = 0,
+    val weeklyGoalHours: Int = 0,
     /** RECENT, MOST_PLAYED, NAME or ADDED. */
     val sort: String = "RECENT",
     /** "", "favorite", "playing" or "finished". */
@@ -45,6 +46,7 @@ data class AppSettings(
                 hintSeen = o.optBoolean("hintSeen", false),
                 light = o.optBoolean("light", false),
                 goalMinutes = o.optInt("goalMinutes", 0),
+                weeklyGoalHours = o.optInt("weeklyGoalHours", 0),
                 sort = o.optString("sort", "RECENT"),
                 filter = o.optString("filter", ""),
                 defaults = o.optJSONObject("defaults")?.let { GameSettings.fromJson(it) } ?: GameSettings(),
@@ -64,6 +66,7 @@ data class AppSettings(
                         .put("hintSeen", s.hintSeen)
                         .put("light", s.light)
                         .put("goalMinutes", s.goalMinutes)
+                        .put("weeklyGoalHours", s.weeklyGoalHours)
                         .put("sort", s.sort)
                         .put("filter", s.filter)
                         .put("defaults", s.defaults.toJson())

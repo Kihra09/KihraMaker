@@ -2,6 +2,8 @@ package com.kihra.maker.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.kihra.maker.data.Achievements
 import com.kihra.maker.data.Game
 import com.kihra.maker.data.PlayLog
+import com.kihra.maker.data.Streaks
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
@@ -60,7 +63,16 @@ fun AssistantScreen(
     shotCount: Int,
     goalMinutes: Int,
     flags: Achievements.Flags = Achievements.Flags(),
+    weeklyGoalHours: Int = 0,
+    onGoals: (daily: Int, weekly: Int) -> Unit = { _, _ -> },
+    onOpenGame: (String) -> Unit = {},
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var streakState by remember { mutableStateOf(Streaks.load(context)) }
+    var goalsOpen by remember { mutableStateOf(false) }
+    var statusFilter by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+
     var days by remember { mutableStateOf(7) }
     var selected by remember { mutableStateOf<Int?>(null) }
 
@@ -74,7 +86,47 @@ fun AssistantScreen(
     val todayMs = perDay.lastOrNull()?.second?.values?.sum() ?: 0L
     val allMs = totals.values.sum()
     val streak = remember(segments) { PlayLog.streak(segments) }
+    androidx.compose.runtime.LaunchedEffect(segments) {
+        val played = Streaks.playedDays(segments, streakState)
+        val cur = Streaks.streakAt(played, java.time.LocalDate.now())
+        val n = Streaks.noteMilestones(cur, streakState, System.currentTimeMillis())
+        if (n != streakState) { streakState = n; Streaks.save(context, n) }
+    }
+    val visible = games.filter { g ->
+        (statusFilter == null || g.status == statusFilter) && (query.isBlank() || g.title.contains(query, ignoreCase = true))
+    }
+    val weekMs = remember(segments) {
+        val t = java.time.LocalDate.now()
+        val ws = t.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.SUNDAY))
+        Streaks.dayTotals(segments).filter { !it.key.isBefore(ws) }.values.sum()
+    }
+    val activeIds = remember(segments) { PlayLog.activeStreak(segments) }
+    val weekly = remember(segments) { PlayLog.perWeek(segments, 12) }
     val milestones = remember(segments, shotCount, games, flags) { Achievements.milestones(segments, shotCount, games, flags) }
+
+    if (goalsOpen) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { goalsOpen = false },
+            title = { Text("Goals") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Daily")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0 to "Off", 30 to "30m", 60 to "1h", 120 to "2h").forEach { (m, l) ->
+                            FilterChip(selected = goalMinutes == m, onClick = { onGoals(m, weeklyGoalHours) }, label = { Text(l) })
+                        }
+                    }
+                    Text("Weekly")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0, 3, 5, 8, 10, 15, 20).forEach { h ->
+                            FilterChip(selected = weeklyGoalHours == h, onClick = { onGoals(goalMinutes, h) }, label = { Text(if (h == 0) "Off" else "$h h") })
+                        }
+                    }
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { goalsOpen = false }) { Text("Done") } },
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -91,36 +143,27 @@ fun AssistantScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatCard("Today", PlayLog.format(todayMs).replace("Not played yet", "0 min"), Modifier.weight(1f))
-                    StatCard("All time", PlayLog.format(allMs).replace("Not played yet", "0 min"), Modifier.weight(1f))
-                    StatCard("Day streak", "$streak", Modifier.weight(1f))
-                }
-            }
-
-            if (goalMinutes > 0) {
-                item {
-                    val goalMs = goalMinutes * 60_000L
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(
-                                if (todayMs >= goalMs) "Daily goal reached" else "Daily goal: ${PlayLog.format(todayMs).replace("Not played yet", "0 min")} of ${PlayLog.format(goalMs)}",
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { (todayMs.toFloat() / goalMs.toFloat()).coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text("Total play time", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(PlayLog.format(allMs).replace("Not played yet", "0 min"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text("${segments.size} sessions \u00b7 $shotCount screenshots", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-
             item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.clickable { goalsOpen = true },
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Goals (tap to change)", fontWeight = FontWeight.SemiBold)
+                        val today = PlayLog.format(todayMs).replace("Not played yet", "0 min")
+                        item {
                 Text("Daily play time", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
