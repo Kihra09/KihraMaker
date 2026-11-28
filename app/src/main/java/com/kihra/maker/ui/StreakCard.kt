@@ -48,6 +48,7 @@ private class Tokens(dark: Boolean) {
     val errBg = if (dark) Color(0xFF3C1E1E) else Color(0xFFF9DEDC)
     val goldText = if (dark) Color(0xFFFCD34D) else Color(0xFF92400E)
     val goldBg = if (dark) Color(0xFF3B2E08) else Color(0xFFFEF3C7)
+    val brand = if (dark) Color(0xFF00A86B) else Color(0xFF01875F)
 }
 
 /** The "Gaming streaks" card: 7-day tracker, status line with action, longest streak and next reward. */
@@ -59,7 +60,7 @@ fun StreakCard(
     onState: (Streaks.State) -> Unit,
 ) {
     val t = Tokens(MaterialTheme.colorScheme.background.luminance() < 0.5f)
-    val accent = MaterialTheme.colorScheme.primary
+    val accent = t.brand
     val today = LocalDate.now()
     val now = System.currentTimeMillis()
     val played = remember(segments, state) { Streaks.playedDays(segments, state) }
@@ -77,7 +78,7 @@ fun StreakCard(
     val perGame = remember(segments, games) { games.associate { it.id to Streaks.dayTotals(segments, it.id) } }
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(t.surface).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(t.surface).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // Zone A
@@ -105,9 +106,13 @@ fun StreakCard(
                 val shape = RoundedCornerShape(10.dp)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     val mod = Modifier.fillMaxWidth().height(38.dp).clip(shape).clickable { picked = if (picked == d) null else d }
+                    val missedFirst = broken.isNotEmpty() && d == broken.first()
+                    val plus = mode == Streaks.Mode.BROKEN && streak == 0 && isToday && !isPlayed
+                    val top = if (isPlayed) games.maxByOrNull { g -> perGame[g.id]?.get(d) ?: 0L }
+                        ?.takeIf { g -> (perGame[g.id]?.get(d) ?: 0L) > 0 } else null
                     Box(
                         when {
-                            milestone -> mod.background(t.goldBg)
+                            milestone -> mod.background(t.goldBg).border(BorderStroke(1.5.dp, t.goldText), shape)
                             isPlayed -> mod.background(accent)
                             missed -> mod.background(t.errBg)
                             isToday -> mod.border(BorderStroke(1.5.dp, accent), shape)
@@ -116,15 +121,14 @@ fun StreakCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         when {
-                            milestone -> Text("★", color = t.goldText)
                             isPlayed -> {
-                                val top = games.maxByOrNull { g -> perGame[g.id]?.get(d) ?: 0L }
-                                    ?.takeIf { g -> (perGame[g.id]?.get(d) ?: 0L) > 0 }
-                                if (top != null) GameIcon(top, 24.dp) else Text("✓", color = Color.White, fontWeight = FontWeight.Bold)
+                                if (top != null) GameIcon(top, 26.dp) else Text("\u2713", color = Color.White, fontWeight = FontWeight.Bold)
+                                if (milestone) Text("\u2605", color = t.goldText, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopEnd).padding(end = 3.dp, top = 1.dp))
                             }
-                            missed -> Text("✕", color = t.errText)
-                            isToday -> Text("${ms / 60_000}m", color = accent, fontSize = 11.sp)
-                            else -> Text("—", color = t.sub.copy(alpha = 0.5f))
+                            missed -> Text("\u2715", color = t.errText)
+                            plus -> Text("+", color = accent, fontWeight = FontWeight.Bold)
+                            isToday -> Text("${maxOf(0L, 5L - ms / 60_000L)}m", color = accent, fontSize = 11.sp)
+                            else -> Text("\u2014", color = t.sub.copy(alpha = 0.5f))
                         }
                     }
                     Spacer(Modifier.height(4.dp))
@@ -155,18 +159,25 @@ fun StreakCard(
         val buttonFg: Color
         when (mode) {
             Streaks.Mode.MILESTONE -> {
-                headline = "$claim-day streak reached!"
-                helper = "Claim your reward within 72 hours to get +1 streak restore."
+                headline = "$claim-day milestone reached!"
+                helper = "Claim your streak restore reward within 72 hours."
                 button = "Claim reward"; buttonBg = t.goldBg; buttonFg = t.goldText
             }
             Streaks.Mode.BROKEN -> {
-                headline = "Your streak was broken"
-                helper = "You missed ${broken.size} day${if (broken.size > 1) "s" else ""}. A restore marks them as played. Restores left: ${state.restores}."
-                button = "Restore streak"; buttonBg = accent; buttonFg = Color.White
+                val lost = Streaks.streakAt(played, broken.first().minusDays(1))
+                if (state.restores > 0) {
+                    headline = "Streak broken"
+                    helper = "Use a Streak Restore within 7 days to save your $lost-day streak."
+                    button = "Restore streak"; buttonBg = accent; buttonFg = Color.White
+                } else {
+                    headline = "0-day streak"
+                    helper = "No restores left. Play any game for 5 min today to start a new streak."
+                    button = "See more"; buttonBg = t.sub.copy(alpha = 0.18f); buttonFg = t.head
+                }
             }
             Streaks.Mode.ACTIVE -> {
                 headline = "$streak-day streak"
-                helper = if (today in played) "You played today. Keep it going tomorrow." else "Play 5 minutes today to keep your streak."
+                helper = if (today in played) "You reached today's goal. Come back tomorrow." else "Play any game for 5 min today to reach ${streak + 1} days."
                 button = "See more"; buttonBg = t.sub.copy(alpha = 0.18f); buttonFg = t.head
             }
             Streaks.Mode.NONE -> {
@@ -177,8 +188,8 @@ fun StreakCard(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(headline, color = t.head, fontWeight = FontWeight.Bold)
-                Text(helper, color = t.sub, fontSize = 12.sp, maxLines = 2)
+                Text(headline, color = t.head, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(helper, color = t.sub, fontSize = 13.sp, maxLines = 2)
             }
             Spacer(Modifier.width(10.dp))
             Text(
@@ -193,13 +204,20 @@ fun StreakCard(
                     }.padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }
+    }
+}
 
-        // Zone D
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Pill("Longest streak", "$longest day${if (longest == 1) "" else "s"}", t, Modifier.weight(1f))
-            val next = Streaks.nextReward(streak)
-            Pill("Next reward", if (next == null) "All claimed" else "$next days", t, Modifier.weight(1f))
-        }
+/** Zone D: Longest streak and Next reward, shown directly under the card. */
+@Composable
+fun StreakPills(segments: List<PlayLog.Segment>, state: Streaks.State) {
+    val t = Tokens(MaterialTheme.colorScheme.background.luminance() < 0.5f)
+    val played = remember(segments, state) { Streaks.playedDays(segments, state) }
+    val streak = remember(played) { Streaks.streakAt(played, LocalDate.now()) }
+    val longest = remember(played) { Streaks.longest(played) }
+    val next = Streaks.nextReward(streak)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Pill("Longest streak", "$longest day${if (longest == 1) "" else "s"}", t, Modifier.weight(1f))
+        Pill("Next reward", if (next == null) "All claimed" else "$next days", t, Modifier.weight(1f))
     }
 }
 

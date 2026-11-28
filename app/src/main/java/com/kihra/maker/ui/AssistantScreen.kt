@@ -72,6 +72,7 @@ fun AssistantScreen(
     var goalsOpen by remember { mutableStateOf(false) }
     var statusFilter by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
+    var tagFilter by remember { mutableStateOf<String?>(null) }
 
     var days by remember { mutableStateOf(7) }
     var selected by remember { mutableStateOf<Int?>(null) }
@@ -92,8 +93,11 @@ fun AssistantScreen(
         val n = Streaks.noteMilestones(cur, streakState, System.currentTimeMillis())
         if (n != streakState) { streakState = n; Streaks.save(context, n) }
     }
+    androidx.compose.runtime.LaunchedEffect(todayMs, goalMinutes) {
+        com.kihra.maker.data.GoalNotifier.check(context, goalMinutes, todayMs)
+    }
     val visible = games.filter { g ->
-        (statusFilter == null || g.status == statusFilter) && (query.isBlank() || g.title.contains(query, ignoreCase = true))
+        (statusFilter == null || g.status == statusFilter) && (tagFilter == null || tagFilter in g.tags.split(',')) && (query.isBlank() || g.title.contains(query, ignoreCase = true))
     }
     val weekMs = remember(segments) {
         val t = java.time.LocalDate.now()
@@ -138,7 +142,8 @@ fun AssistantScreen(
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize(),
+            modifier = Modifier.padding(padding).fillMaxSize()
+                .padding(horizontal = ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 560).coerceAtLeast(0) / 2).dp),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -151,6 +156,11 @@ fun AssistantScreen(
                         Text("Total play time", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(PlayLog.format(allMs).replace("Not played yet", "0 min"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                         Text("${segments.size} sessions \u00b7 $shotCount screenshots", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        androidx.compose.material3.TextButton(onClick = {
+                            val pd = Streaks.playedDays(segments, streakState)
+                            ShareCard.share(context, Streaks.streakAt(pd, java.time.LocalDate.now()), Streaks.longest(pd),
+                                PlayLog.format(allMs).replace("Not played yet", "0 min"), segments.size)
+                        }) { Text("Share as picture") }
                     }
                 }
             }
@@ -175,7 +185,10 @@ fun AssistantScreen(
                 }
             }
             item {
-                StreakCard(segments, streakState, games) { n -> streakState = n; Streaks.save(context, n) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StreakCard(segments, streakState, games) { n -> streakState = n; Streaks.save(context, n) }
+                    StreakPills(segments, streakState)
+                }
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -184,11 +197,18 @@ fun AssistantScreen(
                         singleLine = true, label = { Text("Search games") }, modifier = Modifier.fillMaxWidth(),
                     )
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("playing" to "Playing", "finished" to "Finished", "hold" to "Backlog").forEach { (k, label) ->
+                        listOf("playing" to "Playing", "finished" to "Finished", "hold" to "Backlog", "dropped" to "Dropped").forEach { (k, label) ->
                             FilterChip(
                                 selected = statusFilter == k,
                                 onClick = { statusFilter = if (statusFilter == k) null else k },
                                 label = { Text("$label ${games.count { it.status == k }}") },
+                            )
+                        }
+                        games.flatMap { it.tags.split(',') }.filter { it.isNotBlank() }.distinct().sorted().forEach { tg ->
+                            FilterChip(
+                                selected = tagFilter == tg,
+                                onClick = { tagFilter = if (tagFilter == tg) null else tg },
+                                label = { Text("#$tg") },
                             )
                         }
                     }

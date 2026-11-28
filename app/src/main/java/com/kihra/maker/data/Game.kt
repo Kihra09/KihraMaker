@@ -140,6 +140,8 @@ data class Game(
     val favorite: Boolean = false,
     /** "", "playing", "finished" or "hold". */
     val status: String = "",
+    /** Comma-separated tags, e.g. "horror,rpg". */
+    val tags: String = "",
     /** The player has been through the setup screen for this game. */
     val configured: Boolean = false,
 ) {
@@ -159,6 +161,7 @@ data class Game(
         put("zipCompressed", zipCompressed)
         put("favorite", favorite)
         put("status", status)
+        put("tags", tags)
         put("configured", configured)
         put("ffSpeed", settings.ffSpeed)
         put("renderScale", settings.renderScale.toDouble())
@@ -203,6 +206,7 @@ data class Game(
                 zipCompressed = o.optBoolean("zipCompressed", false),
                 favorite = o.optBoolean("favorite", false),
                 status = o.optString("status", ""),
+                tags = o.optString("tags", ""),
                 configured = o.optBoolean("configured", false),
                 settings = GameSettings(
                     scaleMode = runCatching { ScaleMode.valueOf(o.getString("scaleMode")) }

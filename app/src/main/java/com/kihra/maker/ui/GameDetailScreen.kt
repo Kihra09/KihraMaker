@@ -1,6 +1,7 @@
 package com.kihra.maker.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -67,6 +68,7 @@ class DetailActions(
     val onExportSaves: () -> Unit,
     val onImportSaves: () -> Unit,
     val onOpenSetup: () -> Unit = {},
+    val onTags: (String) -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +84,7 @@ fun GameDetailScreen(
     rtpInstalled: Boolean,
     actions: DetailActions,
     backupCount: Int,
+    segments: List<PlayLog.Segment> = emptyList(),
 ) {
     BackHandler(onBack = onBack)
     var confirmRemove by remember { mutableStateOf(false) }
@@ -164,8 +167,8 @@ fun GameDetailScreen(
                 Text("Play", fontWeight = FontWeight.SemiBold)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("" to "No status", "playing" to "Playing", "finished" to "Finished", "hold" to "On hold").forEach { (key, label) ->
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("" to "No status", "playing" to "Playing", "finished" to "Finished", "hold" to "Backlog", "dropped" to "Dropped").forEach { (key, label) ->
                     FilterChip(
                         selected = game.status == key,
                         onClick = { actions.onStatus(key) },
@@ -173,6 +176,39 @@ fun GameDetailScreen(
                     )
                 }
             }
+
+            // Tags
+            var tagInput by remember { mutableStateOf("") }
+            val tagList = game.tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tagList.forEach { t ->
+                        FilterChip(selected = true, onClick = { actions.onTags(tagList.filter { it != t }.joinToString(",")) }, label = { Text("#$t  \u2715") })
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = tagInput, onValueChange = { tagInput = it.filter { c -> c.isLetterOrDigit() || c == '-' || c == '_' }.take(20) },
+                        label = { Text("New tag") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = {
+                        val t = tagInput.trim().lowercase()
+                        if (t.isNotEmpty() && t !in tagList) actions.onTags((tagList + t).joinToString(","))
+                        tagInput = ""
+                    }) { Text("Add") }
+                }
+            }
+
+            // Charts
+            val days14 = remember(segments, game.id) {
+                val t = com.kihra.maker.data.Streaks.dayTotals(segments, game.id)
+                val today = java.time.LocalDate.now()
+                (13 downTo 0).map { t[today.minusDays(it.toLong())] ?: 0L }
+            }
+            val weeks12 = remember(segments, game.id) { PlayLog.perWeek(segments.filter { it.gameId == game.id }, 12) }
+            Text("Last 14 days", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            MiniBars(days14, "14 days ago", "today", 15 * 60_000L)
+            Text("Last 12 weeks", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            MiniBars(weeks12, "12 weeks ago", "this week", 60 * 60_000L)
 
             OutlinedButton(onClick = actions.onOpenSetup, modifier = Modifier.fillMaxWidth()) {
                 Text("Game setup (display, controls, saves, advanced)")

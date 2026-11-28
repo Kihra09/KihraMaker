@@ -510,8 +510,10 @@ fun AppRoot(store: GameStore) {
                     playedMs = playtime[open.id] ?: 0L,
                     rtpInstalled = Rtp.isValid(rtpPath),
                     backupCount = remember(open.id, reload, backupsFor) { SaveBackup.list(context, open).size },
+                    segments = segments,
                     actions = DetailActions(
                         onFavorite = { update(games.map { if (it.id == open.id) it.copy(favorite = !it.favorite) else it }) },
+                        onTags = { tg -> update(games.map { if (it.id == open.id) it.copy(tags = tg) else it }) },
                         onStatus = { st -> update(games.map { if (it.id == open.id) it.copy(status = st) else it }) },
                         onRename = { name -> update(games.map { if (it.id == open.id) it.copy(title = name) else it }) },
                         onPickIcon = { gameForPicker = open; iconPicker.launch(arrayOf("image/*")) },

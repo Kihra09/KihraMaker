@@ -114,7 +114,7 @@ object EngineLauncher {
             put("integerScalingActive", s.scaleMode == ScaleMode.INTEGER)
             put("vsync", false)
             // The path cache lists every file of the game and RTP at start-up: tens of seconds on big games.
-            put("pathCache", s.pathCache)
+            put("pathCache", s.pathCache || foldersDifferInCase(dir))
             put("enableSettings", false)
             if (rtps.isNotEmpty()) put("RTP", JSONArray(rtps))
             // Safe mode: no KihraMaker script at all, just the plain engine.
@@ -176,6 +176,16 @@ object EngineLauncher {
     }
 
     private const val SHIM_NAME = "kihra_preload.rb"
+
+    /**
+     * The file index is only needed when the game was packed with different upper/lower case than the
+     * engine asks for (Android is case-sensitive). The standard top-level folders are the telltale.
+     */
+    private fun foldersDifferInCase(dir: File): Boolean = runCatching {
+        val standard = listOf("Data", "Graphics", "Audio", "Fonts", "Movies")
+        val names = dir.list()?.toList().orEmpty()
+        standard.any { std -> std !in names && names.any { it.equals(std, ignoreCase = true) } }
+    }.getOrDefault(false)
 
     private fun noRtpNeeded(dir: File): Boolean = runCatching {
         val ini = File(dir, "Game.ini")
