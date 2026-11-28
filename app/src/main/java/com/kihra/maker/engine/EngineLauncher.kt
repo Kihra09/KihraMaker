@@ -62,7 +62,8 @@ object EngineLauncher {
             return "The game folder is missing: ${game.path}"
         }
 
-        if (rtpPath.isNotBlank()) rtps += rtpPath
+        // A game whose Game.ini names no RTP doesn't need one: mounting it only slows start-up.
+        if (rtpPath.isNotBlank() && !(game.rgss != Rgss.XP && noRtpNeeded(dir))) rtps += rtpPath
         gameFontDir(context, game.settings.gameFont)?.let { rtps.add(0, it) }
         writeConfig(context, dir, game, rtps, mustOwn = game.fromZip, safe = safe || game.settings.safeMode)?.let { return it }
 
@@ -173,6 +174,16 @@ object EngineLauncher {
     }
 
     private const val SHIM_NAME = "kihra_preload.rb"
+
+    private fun noRtpNeeded(dir: File): Boolean = runCatching {
+        val ini = File(dir, "Game.ini")
+        if (!ini.isFile) return false
+        val keys = ini.readLines().mapNotNull { l ->
+            val i = l.indexOf('=')
+            if (i < 0) null else l.substring(0, i).trim().lowercase() to l.substring(i + 1).trim()
+        }.filter { it.first == "rtp" || it.first == "rtp1" || it.first == "rtp2" || it.first == "rtp3" }
+        keys.isNotEmpty() && keys.all { it.second.isEmpty() }
+    }.getOrDefault(false)
 
     /** The preload script (see assets/kihra_preload.rb) with this game's RGSS version filled in. */
     private fun shimFor(context: Context, game: Game, dir: File): String {

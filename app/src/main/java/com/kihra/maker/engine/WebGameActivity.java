@@ -236,11 +236,11 @@ public class WebGameActivity extends Activity {
                     in.skip(from);
                     cors.put("Content-Range", "bytes " + from + "-" + to + "/" + len);
                     cors.put("Content-Length", String.valueOf(to - from + 1));
-                    return new WebResourceResponse(mime, null, 206, "Partial Content", cors, in);
+                    return new WebResourceResponse(mime, null, 206, "Partial Content", cors, new java.io.BufferedInputStream(in, 262144));
                 }
             }
             cors.put("Content-Length", String.valueOf(len));
-            return new WebResourceResponse(mime, text ? "utf-8" : null, 200, "OK", cors, new FileInputStream(f));
+            return new WebResourceResponse(mime, text ? "utf-8" : null, 200, "OK", cors, new java.io.BufferedInputStream(new FileInputStream(f), 262144));
         } catch (Exception e) {
             Log.e(TAG, "serve failed: " + e);
             return new WebResourceResponse("text/plain", "utf-8", 500, "Error", cors, new ByteArrayInputStream(new byte[0]));

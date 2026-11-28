@@ -77,6 +77,7 @@ public class GameActivity extends SDLActivity {
         String path = getIntent().getStringExtra(EngineLauncher.EXTRA_PATH);
         GAME_PATH = path == null ? "" : path;
         Log.i(TAG, "Game path: " + GAME_PATH);
+        bootMark("activity created");
 
         super.onCreate(savedInstanceState);
 
@@ -142,6 +143,7 @@ public class GameActivity extends SDLActivity {
             });
             mAch.start();
         }
+        bootMark("controls ready");
         showLoadingInfo();
         watchLoading(0);
     }
@@ -308,6 +310,14 @@ public class GameActivity extends SDLActivity {
     private AchievementPopup mAch;
 
     /** If the game hasn't drawn its first frame after a while, say so and offer a way out. */
+    /** Time marks in the same file the game script writes to, so the log shows where start-up time goes. */
+    private static void bootMark(String text) {
+        try (FileWriter w = new FileWriter(new File(GAME_PATH, "kihra_boot.txt"), true)) {
+            w.write((System.currentTimeMillis() / 1000.0) + "\t" + text + "\n");
+        } catch (Exception ignored) {
+        }
+    }
+
     private android.widget.TextView mLoadInfo;
     private final long mLoadStart = System.currentTimeMillis();
 

@@ -79,9 +79,11 @@ object SessionLog {
 
     /** Saves the app's recent system log (only this app's lines are visible to it). */
     fun capture(context: Context, title: String, note: String, bootMarks: String? = null): File? = runCatching {
-        val proc = ProcessBuilder("logcat", "-d", "-v", "threadtime", "-t", "3000")
+        val proc = ProcessBuilder("logcat", "-d", "-v", "threadtime", "-t", "12000")
             .redirectErrorStream(true).start()
-        val text = proc.inputStream.bufferedReader().readText()
+        // Drop per-frame FPS prints and vendor noise so the engine's start-up lines are not pushed out.
+        val noise = Regex("mkxp\\s*: FPS:|Quality\\s*:|Oplus|Autofill|ExtensionsLoader|SurfaceComposerClient|BLASTBufferQueue|OpenGLRenderer|AdrenoGLES|hw-ProcessState|AudioTrack|PlayerBase")
+        val text = proc.inputStream.bufferedReader().readLines().filterNot { noise.containsMatchIn(it) }.takeLast(2500).joinToString("\n")
         proc.waitFor(5, TimeUnit.SECONDS)
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val safe = title.replace(Regex("[^A-Za-z0-9._-]"), "_").take(30)
