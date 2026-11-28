@@ -107,6 +107,7 @@ fun AppRoot(store: GameStore) {
     var logs by remember { mutableStateOf(emptyList<File>()) }
     var achFlags by remember { mutableStateOf(com.kihra.maker.data.Achievements.Flags()) }
     var viewingLog by remember { mutableStateOf<File?>(null) }
+    var autoSafe by remember { mutableStateOf<String?>(null) }
     var popups by remember { mutableStateOf<List<String>>(emptyList()) }
     var crashed by remember { mutableStateOf<SessionLog.Ended?>(null) }
     var backupsFor by remember { mutableStateOf<Game?>(null) }
@@ -145,6 +146,12 @@ fun AppRoot(store: GameStore) {
         }
         if (ended != null && ended.crashed) {
             crashed = ended
+            val g = ended.game
+            // A game that never drew a frame starts in safe mode next time (can be turned off in Game setup).
+            if (ended.stuck && g != null && !g.settings.safeMode) {
+                update(games.map { if (it.id == g.id) it.copy(settings = it.settings.copy(safeMode = true)) else it })
+                autoSafe = g.title
+            }
         }
     }
     val playtime = remember(segments) { PlayLog.totals(segments) }
@@ -704,7 +711,8 @@ fun AppRoot(store: GameStore) {
                 text = {
                     Text(
                         (if (c.stuck) "The game never drew its first screen. Large games can take a while, but this one didn't finish. " +
-                            "Safe mode starts the plain engine without any extras and often fixes it. " else "") +
+                            "Safe mode starts the plain engine without any extras and often fixes it. " +
+                            (if (autoSafe != null) "It is now on for this game automatically (Game setup > Advanced turns it off). " else "") else "") +
                             "A log was saved. If this keeps happening, open the log, copy it and send it to get the game fixed. " +
                             "Your saves were backed up.",
                     )

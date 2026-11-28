@@ -142,6 +142,7 @@ public class GameActivity extends SDLActivity {
             });
             mAch.start();
         }
+        showLoadingInfo();
         watchLoading(0);
     }
 
@@ -307,6 +308,46 @@ public class GameActivity extends SDLActivity {
     private AchievementPopup mAch;
 
     /** If the game hasn't drawn its first frame after a while, say so and offer a way out. */
+    private android.widget.TextView mLoadInfo;
+    private final long mLoadStart = System.currentTimeMillis();
+
+    /** Small live status while the game loads, so a slow start is visibly different from a stuck one. */
+    private void showLoadingInfo() {
+        if (mLayout == null) return;
+        mLoadInfo = new android.widget.TextView(this);
+        mLoadInfo.setTextColor(0xFFFFFFFF);
+        mLoadInfo.setBackgroundColor(0x99000000);
+        mLoadInfo.setTextSize(12f);
+        mLoadInfo.setPadding(24, 12, 24, 12);
+        RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(
+                LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        lp.addRule(RelativeLayout.CENTER_IN_PARENT);
+        mLayout.addView(mLoadInfo, lp);
+        tickLoadingInfo();
+    }
+
+    private void tickLoadingInfo() {
+        mMainHandler.postDelayed(() -> {
+            if (mLoadInfo == null || isFinishing()) return;
+            String last = "";
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(new File(GAME_PATH, "kihra_boot.txt")))) {
+                String line;
+                while ((line = r.readLine()) != null) last = line;
+            } catch (Exception ignored) {
+            }
+            if (last.contains("first frame")) {
+                ((android.view.ViewGroup) mLoadInfo.getParent()).removeView(mLoadInfo);
+                mLoadInfo = null;
+                return;
+            }
+            long sec = (System.currentTimeMillis() - mLoadStart) / 1000;
+            int tab = last.indexOf('\t');
+            String step = tab >= 0 ? last.substring(tab + 1) : "starting the engine / reading scripts";
+            mLoadInfo.setText("Loading " + sec + "s - " + step);
+            tickLoadingInfo();
+        }, 1000);
+    }
+
     private void watchLoading(final int round) {
         mMainHandler.postDelayed(() -> {
             if (isFinishing()) return;

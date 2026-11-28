@@ -122,7 +122,7 @@ object EngineLauncher {
             }
         }
         return runCatching {
-            File(dir, SHIM_NAME).writeText(shimFor(context, game))
+            File(dir, SHIM_NAME).writeText(shimFor(context, game, dir))
             file.writeText(json.toString(2))
         }.exceptionOrNull()
             ?.let { "Can't write the game's settings file (is the folder read-only?)." }
@@ -175,14 +175,21 @@ object EngineLauncher {
     private const val SHIM_NAME = "kihra_preload.rb"
 
     /** The preload script (see assets/kihra_preload.rb) with this game's RGSS version filled in. */
-    private fun shimFor(context: Context, game: Game): String {
+    private fun shimFor(context: Context, game: Game, dir: File): String {
         val version = when (game.rgss) {
             Rgss.XP -> 1
             Rgss.VX -> 2
             else -> 3
         }
+        // Windows DLL stubs are only needed when the game ships its own DLLs (not RGSS*.dll).
+        val ffi = dir.listFiles { f -> f.isFile && f.extension.equals("dll", true) && !f.name.startsWith("RGSS", true) }
+            ?.isNotEmpty() == true
+        runCatching {
+            File(dir, "kihra_ctl.rb").writeText(context.assets.open("kihra_ctl.rb").bufferedReader().use { it.readText() })
+        }
         return context.assets.open("kihra_preload.rb").bufferedReader().use { it.readText() }
-            .replace("__RGSS__", version.toString()) +
+            .replace("__RGSS__", version.toString())
+            .replace("__FFI__", ffi.toString()) +
             (if (game.settings.customRuby.isNotBlank()) {
                 // Evaluated inside begin/rescue so a typo in a custom fix can't stop the game.
                 "\n# ---- Custom fixes for this game ----\nbegin\n  eval(<<'KIHRA_CUSTOM_END')\n" +

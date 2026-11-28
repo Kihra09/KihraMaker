@@ -84,3 +84,4 @@ scripts/build-engine.sh raises Graphics.frame_rate's cap from 120 to 960 so 4x-1
 - MV/MZ games use the same on-screen controls, layout editor, gestures, menu (Screenshot, Fast forward, Edit layout, Exit game), FPS counter and wallpaper as the other games.
 - Games that stay on the loading screen show a dialog with the errors the game reported (also in the log).
 - Achievements pop up top-left in the launcher and in games; MV/MZ icons and covers come from the game's title picture.
+- Update 13: the start-up script is lean (cheat code loads only when used, DLL stubs only for games with their own DLLs); a game that never draws a frame switches to safe mode automatically; live "Loading Ns" status for every game; MV/MZ serve files with range support.

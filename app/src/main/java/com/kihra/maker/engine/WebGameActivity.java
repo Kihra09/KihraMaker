@@ -71,6 +71,9 @@ public class WebGameActivity extends Activity {
     private boolean ready = false;
     private boolean fast = false;
     private int missing = 0;
+    private volatile int served = 0;
+    private android.widget.TextView loadInfo;
+    private final long loadStart = System.currentTimeMillis();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ArrayDeque<String> problems = new ArrayDeque<>();
 
@@ -165,6 +168,15 @@ public class WebGameActivity extends Activity {
             }
         });
 
+        loadInfo = new android.widget.TextView(this);
+        loadInfo.setTextColor(Color.WHITE);
+        loadInfo.setBackgroundColor(0x99000000);
+        loadInfo.setTextSize(12f);
+        loadInfo.setPadding(24, 12, 24, 12);
+        RelativeLayout.LayoutParams lip = new RelativeLayout.LayoutParams(-2, -2);
+        lip.addRule(RelativeLayout.CENTER_IN_PARENT);
+        root.addView(loadInfo, lip);
+        tickLoading();
         setupControls();
         web.loadUrl("https://" + host + "/index.html");
         web.requestFocus();
@@ -210,7 +222,24 @@ public class WebGameActivity extends Activity {
             String ext = dot < 0 ? "" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
             String mime = MIME.containsKey(ext) ? MIME.get(ext) : "application/octet-stream";
             boolean text = mime.startsWith("text/") || mime.equals("application/javascript") || mime.equals("application/json");
-            cors.put("Cache-Control", "no-cache");
+            served++;
+            long len = f.length();
+            String range = req.getRequestHeaders() == null ? null : req.getRequestHeaders().get("Range");
+            cors.put("Accept-Ranges", "bytes");
+            if (range != null && range.startsWith("bytes=")) {
+                String[] parts = range.substring(6).split("-", -1);
+                long from = parts[0].isEmpty() ? 0 : Long.parseLong(parts[0].trim());
+                long to = parts.length > 1 && !parts[1].trim().isEmpty() ? Long.parseLong(parts[1].trim()) : len - 1;
+                if (to >= len) to = len - 1;
+                if (from <= to) {
+                    FileInputStream in = new FileInputStream(f);
+                    in.skip(from);
+                    cors.put("Content-Range", "bytes " + from + "-" + to + "/" + len);
+                    cors.put("Content-Length", String.valueOf(to - from + 1));
+                    return new WebResourceResponse(mime, null, 206, "Partial Content", cors, in);
+                }
+            }
+            cors.put("Content-Length", String.valueOf(len));
             return new WebResourceResponse(mime, text ? "utf-8" : null, 200, "OK", cors, new FileInputStream(f));
         } catch (Exception e) {
             Log.e(TAG, "serve failed: " + e);
@@ -219,6 +248,25 @@ public class WebGameActivity extends Activity {
     }
 
     // ---- loading watchdog: tells the player (and the log) why a game doesn't start ----
+
+    private void tickLoading() {
+        ui.postDelayed(() -> {
+            if (isFinishing() || loadInfo == null) return;
+            web.evaluateJavascript("(typeof SceneManager!=='undefined'&&SceneManager._scene&&SceneManager._scene.constructor&&SceneManager._scene.constructor.name!=='Scene_Boot')?'1':'0'", v -> {
+                if (loadInfo == null) return;
+                if (v != null && v.contains("1")) {
+                    ready = true;
+                    root.removeView(loadInfo);
+                    loadInfo = null;
+                    return;
+                }
+                loadInfo.setText("Loading " + ((System.currentTimeMillis() - loadStart) / 1000) + "s - "
+                        + served + " files read" + (missing > 0 ? ", " + missing + " missing" : "")
+                        + (problems.isEmpty() ? "" : ", " + problems.size() + " errors"));
+                tickLoading();
+            });
+        }, 1000);
+    }
 
     private void watchLoading(final int round) {
         ui.postDelayed(() -> {
