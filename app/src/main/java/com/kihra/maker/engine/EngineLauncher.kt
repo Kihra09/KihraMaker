@@ -5,6 +5,7 @@ import android.content.Intent
 import com.kihra.maker.data.Game
 import com.kihra.maker.data.Rgss
 import com.kihra.maker.data.ScaleMode
+import com.kihra.maker.data.Shots
 import com.kihra.maker.data.ZipImporter
 import org.json.JSONArray
 import org.json.JSONObject

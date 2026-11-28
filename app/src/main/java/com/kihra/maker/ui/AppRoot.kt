@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kihra.maker.data.Game
 import com.kihra.maker.data.GameScanner
+import com.kihra.maker.data.sharedWith
 import com.kihra.maker.data.GameStore
 import com.kihra.maker.data.PathUtils
 import com.kihra.maker.data.Storage
